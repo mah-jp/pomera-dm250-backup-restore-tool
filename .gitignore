@@ -1,0 +1,39 @@
+# Build outputs and generated binaries
+xrock
+*.bin
+*.img
+*.dtb
+*.scr
+*.cmd
+boot_merger
+
+# Build and staging directories
+sdcard_images/
+backup_*/
+factory_backup*/
+backup_file/
+backup_info.txt
+sha256sum.txt
+u-boot/
+linux-dm250/
+bin/
+
+# Temporary / Backup image files (eMMC dumps)
+mmcblk0*.img
+emmc.img
+dm250-idb.img
+*.zip
+*.tar
+*.tar.gz
+*.tar.xz
+*.raw
+*.dump
+
+# Preserve empty restore directory
+!restore_file/.gitkeep
+
+# OS / Editor temporary files
+.DS_Store
+*.swp
+*~
+*.tmp
