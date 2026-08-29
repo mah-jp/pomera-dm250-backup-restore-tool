@@ -1,16 +1,10 @@
 # Build outputs and generated binaries
-xrock
 *.bin
 *.img
 *.dtb
 *.scr
 *.cmd
 boot_merger
-
-# Untested MaskROM (xrock) tools
-build_xrock.sh
-boot_maskrom_ums.sh
-patches/xrock_progress.patch
 
 # Build and staging directories
 sdcard_images/
