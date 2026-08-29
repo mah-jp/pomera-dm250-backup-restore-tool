@@ -58,14 +58,14 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
         echo "  # Stock Pomera Backup (Default: full raw image + 27 partitions)"
         echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./factory_backup"
         echo ""
-        echo "  # OpenBSD / Linux Pomera Backup (Full raw disk image only)"
-        echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./openbsd_backup raw"
+        echo "  # Custom OS (OpenBSD / Linux) Backup (Full raw disk image only)"
+        echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./custom_backup raw"
     else
         echo "  # Stock Pomera Backup (Default: full raw image + 27 partitions)"
         echo "  sudo ./backup_emmc.sh /dev/sdb ./factory_backup"
         echo ""
-        echo "  # OpenBSD / Linux Pomera Backup (Full raw disk image only)"
-        echo "  sudo ./backup_emmc.sh /dev/sdb ./openbsd_backup raw"
+        echo "  # Custom OS (OpenBSD / Linux) Backup (Full raw disk image only)"
+        echo "  sudo ./backup_emmc.sh /dev/sdb ./custom_backup raw"
     fi
     echo ""
     show_block_devices

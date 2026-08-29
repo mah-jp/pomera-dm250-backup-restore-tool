@@ -168,8 +168,8 @@ Performs a read-only (100% safe) dump of the entire internal eMMC to your PC.
 # [Stock King Jim OS Backup] (Default: Full RAW image + 27 partition images)
 sudo ./backup_emmc.sh <target_device> ./factory_backup
 
-# [OpenBSD / Linux Backup] (raw mode: RAW full image only)
-sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
+# [Custom OS (OpenBSD / Linux) Backup] (raw mode: RAW full image only)
+sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 ```
 
 #### 💡 Backup Mode Selection & Best Practices
@@ -179,7 +179,7 @@ sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
 | Mode | Saved Output | Recommended Use Case |
 | :--- | :--- | :--- |
 | **`both`**<br>(Default) | `emmc.img` (7.3 GB) +<br>`dm250-idb.img` + `mmcblk0p1.img`–`p27.img` | **Best for Stock King Jim OS**.<br>Saves the full raw image along with all 27 individual factory partitions extracted. |
-| **`raw`** | `emmc.img` (7.3 GB) only | **Best for OpenBSD / Linux (Custom OS)**.<br>Custom OSes do not use the 27-partition layout. Saving only the full raw disk image is the fastest, cleanest approach and saves PC disk space (~8 GB). |
+| **`raw`** | `emmc.img` (7.3 GB) only | **Best for Custom OS (OpenBSD / Linux, etc.)**.<br>Custom OSes do not use the 27-partition layout. Saving only the full raw disk image is the fastest, cleanest approach and saves PC disk space (~8 GB). |
 | **`parts`** | `dm250-idb.img` + `p1`–`p27.img` only | Saves only individual partitions (legacy compatibility). |
 
 > [!TIP]
@@ -190,7 +190,7 @@ sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
 
 ---
 
-### 🔄 [Advanced Technique] Effortless Dual-Boot Switching (Stock Pomera ⇄ OpenBSD / Linux)
+### 🔄 [Advanced Technique] Effortless Dual-Boot Switching (Stock Pomera ⇄ Custom OS)
 
 With this toolkit, you can switch between the factory Pomera firmware and custom OS environments (like OpenBSD or Linux) with complete confidence:
 
@@ -200,15 +200,15 @@ With this toolkit, you can switch between the factory Pomera firmware and custom
    ```
 2. **Install OpenBSD / Linux, configure your environment, and back it up**:
    ```bash
-   sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
+   sudo ./backup_emmc.sh <target_device> ./custom_backup raw
    ```
 3. **Switch between environments with `restore_emmc.sh`**:
    ```bash
    # Restore Stock Pomera OS:
    sudo ./restore_emmc.sh <target_device> ./factory_backup
 
-   # Switch back to OpenBSD / Linux:
-   sudo ./restore_emmc.sh <target_device> ./openbsd_backup
+   # Switch back to Custom OS:
+   sudo ./restore_emmc.sh <target_device> ./custom_backup
    ```
 *(You have a 100% full-disk safety net, allowing safe OS experimentation at any time).*
 

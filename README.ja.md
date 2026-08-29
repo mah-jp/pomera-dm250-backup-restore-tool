@@ -168,8 +168,8 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 # 【キングジム純正OSのバックアップ】（デフォルト: フルイメージ＋27パーティション分割を保存）
 sudo ./backup_emmc.sh <target_device> ./factory_backup
 
-# 【OpenBSD / Linux（非純正OS）のバックアップ】（rawモード: RAWフルイメージのみ保存）
-sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
+# 【カスタムOS（OpenBSD / Linux 等）のバックアップ】（rawモード: RAWフルイメージのみ保存）
+sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 ```
 
 #### 💡 バックアップモードの選び方とベストプラクティス
@@ -179,7 +179,7 @@ sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
 | モード | 保存される内容 | 推奨用途・特徴 |
 | :--- | :--- | :--- |
 | **`both`**<br>(デフォルト) | `emmc.img` (7.3GB) ＋<br>`dm250-idb.img` ＋ `mmcblk0p1.img`〜`p27.img` | **キングジム純正OSに最適**。<br>全体のRAWイメージだけでなく、純正の27個のパーティションすべてを個別に切り出し保存します。 |
-| **`raw`** | `emmc.img` (7.3GB) のみ | **OpenBSD / Linux 等の非純正OSに最適**。<br>非純正OSは27パーティション構造ではないため、RAWフルイメージのみを丸ごと保存するのが最もスムーズで無駄がありません（PCの空き容量も約8GBで済みます）。 |
+| **`raw`** | `emmc.img` (7.3GB) のみ | **カスタムOS（OpenBSD / Linux 等）に最適**。<br>カスタムOSは27パーティション構造ではないため、RAWフルイメージのみを丸ごと保存するのが最もスムーズで無駄がありません（PCの空き容量も約8GBで済みます）。 |
 | **`parts`** | `dm250-idb.img` ＋ `p1`〜`p27.img` のみ | 純正の個別パーティションのみを保存したい場合（レガシー互換用）。 |
 
 > [!TIP]
@@ -190,7 +190,7 @@ sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
 
 ---
 
-### 🔄 【応用テクニック】「純正ポメラ」と「OpenBSD / Linux ポメラ」の二刀流切り替え
+### 🔄 【応用テクニック】「純正ポメラ」と「カスタムOS（OpenBSD / Linux 等）」の二刀流切り替え
 
 本ツールキットがあれば、ポメラ本体の環境を自由自在に行き来して運用することができます：
 
@@ -198,17 +198,17 @@ sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
    ```bash
    sudo ./backup_emmc.sh <target_device> ./factory_backup both
    ```
-2. **OpenBSD や Linux をインストールして自分好みの環境を構築＆バックアップ**:
+2. **OpenBSD や Linux 等のカスタム環境を構築＆バックアップ**:
    ```bash
-   sudo ./backup_emmc.sh <target_device> ./openbsd_backup raw
+   sudo ./backup_emmc.sh <target_device> ./custom_backup raw
    ```
 3. **いつでも好きな方の環境へ `restore_emmc.sh` で一発復元**:
    ```bash
    # 純正ポメラに戻したい時
    sudo ./restore_emmc.sh <target_device> ./factory_backup
 
-   # 再び OpenBSD ポメラに戻したい時
-   sudo ./restore_emmc.sh <target_device> ./openbsd_backup
+   # 再びカスタムOS環境に戻したい時
+   sudo ./restore_emmc.sh <target_device> ./custom_backup
    ```
 *(※ 完全なセーフティネットがあるため、OSの入れ替えや実験を何度でも安全に行えます)*
 
