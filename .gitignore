@@ -8,16 +8,21 @@ boot_merger
 
 # Build and staging directories
 sdcard_images/
+u-boot/
+linux-dm250/
+bin/
+
+# Backup and restore directories (preserve .gitkeep only)
 backup_*/
 !backup_file/
 backup_file/*
 !backup_file/.gitkeep
+!restore_file/
+restore_file/*
+!restore_file/.gitkeep
 factory_backup*/
 backup_info.txt
 sha256sum.txt
-u-boot/
-linux-dm250/
-bin/
 
 # Temporary / Backup image files (eMMC dumps)
 mmcblk0*.img
@@ -29,10 +34,6 @@ dm250-idb.img
 *.tar.xz
 *.raw
 *.dump
-
-# Preserve empty directories
-!restore_file/.gitkeep
-!backup_file/.gitkeep
 
 # OS / Editor temporary files
 .DS_Store
