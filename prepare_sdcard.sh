@@ -2,7 +2,7 @@
 # =====================================================================
 # Pomera DM250 Recovery Tool (SD Card USB Mass Storage Mode Preparation)
 # Prepares SD card bootloader to automatically export eMMC over USB
-# Cross-Platform Support: Linux (x86_64, aarch64, armhf) & macOS (Apple Silicon / Intel)
+# Cross-Platform Support: Linux & macOS
 # =====================================================================
 set -euo pipefail
 
@@ -242,7 +242,7 @@ if [ -f "$SCRIPT_DIR/patches/uboot_usb_connect_notify.patch" ]; then
 fi
 
 echo "Patching U-Boot configuration for on-screen banner and automatic USB Mass Storage (UMS)..."
-BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage (UMS) Mode Active; echo   eMMC is mounted as a USB drive to PC.; echo   Run dump_emmc.sh (Backup) or restore_emmc.sh (Restore); echo =================================================; echo; ums 0 mmc 0"
+BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage (UMS) Mode Active; echo   eMMC is mounted as a USB drive to PC.; echo   Run backup_emmc.sh (Backup) or restore_emmc.sh (Restore); echo =================================================; echo; ums 0 mmc 0"
 portable_sed "s|CONFIG_BOOTCOMMAND=.*|CONFIG_BOOTCOMMAND=\"$BOOTCMD_STR\"|" configs/pomera-dm250_defconfig
 
 # Configure and compile U-Boot
@@ -371,13 +371,13 @@ else
     echo "6. Once the screen turns on with recovery banner, connect USB-C cable to PC."
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "   🍏 macOS Tip: If an 'unreadable disk' dialog pops up, ALWAYS choose 'Ignore'."
-        echo "   🍏 macOS Tip: Execute dump/restore promptly to avoid USB idle auto-disconnect."
+        echo "   🍏 macOS Tip: Execute backup/restore promptly to avoid USB idle auto-disconnect."
         echo "7. Pomera eMMC will appear as /dev/rdiskN on macOS."
-        echo "   - To backup eMMC to PC : sudo ./dump_emmc.sh /dev/rdiskN ./factory_backup"
+        echo "   - To backup eMMC to PC : sudo ./backup_emmc.sh /dev/rdiskN ./factory_backup"
         echo "   - To restore eMMC      : sudo ./restore_emmc.sh /dev/rdiskN ./restore_file"
     else
         echo "7. Pomera eMMC will appear as /dev/sdX on Linux."
-        echo "   - To backup eMMC to PC : sudo ./dump_emmc.sh /dev/sdX ./factory_backup"
+        echo "   - To backup eMMC to PC : sudo ./backup_emmc.sh /dev/sdX ./factory_backup"
         echo "   - To restore eMMC      : sudo ./restore_emmc.sh /dev/sdX ./restore_file"
     fi
 fi

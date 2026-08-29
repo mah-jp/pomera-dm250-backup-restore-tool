@@ -7,11 +7,18 @@ xrock
 *.cmd
 boot_merger
 
+# Untested MaskROM (xrock) tools
+build_xrock.sh
+boot_maskrom_ums.sh
+patches/xrock_progress.patch
+
 # Build and staging directories
 sdcard_images/
 backup_*/
+!backup_file/
+backup_file/*
+!backup_file/.gitkeep
 factory_backup*/
-backup_file/
 backup_info.txt
 sha256sum.txt
 u-boot/
@@ -29,8 +36,9 @@ dm250-idb.img
 *.raw
 *.dump
 
-# Preserve empty restore directory
+# Preserve empty directories
 !restore_file/.gitkeep
+!backup_file/.gitkeep
 
 # OS / Editor temporary files
 .DS_Store

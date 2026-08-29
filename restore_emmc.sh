@@ -2,7 +2,7 @@
 # =====================================================================
 # Pomera DM250 Direct eMMC Restore Script (with Checksum Verification)
 # Restores backup image files to the UMS-mounted eMMC disk
-# Cross-Platform Support: Linux (x86_64, aarch64, armhf) & macOS (Apple Silicon / Intel)
+# Cross-Platform Support: Linux & macOS
 # =====================================================================
 set -euo pipefail
 
@@ -17,11 +17,6 @@ OS_NAME="$(uname -s)"
 echo "=========================================================="
 echo "  Pomera DM250 eMMC Direct Restore Tool (with Verify)"
 echo "  Host Platform: $OS_NAME ($(uname -m))"
-echo "=========================================================="
-echo "ℹ️  Expected Performance:"
-echo "   - Write speed:  ~4.8 - 5.0 MB/s"
-echo "   - Verify speed: ~15 - 25 MB/s"
-echo "   - Estimated total time for 27 partitions (7.3GB): ~25 - 30 minutes"
 echo "=========================================================="
 
 show_block_devices() {
@@ -38,15 +33,21 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     echo ""
     echo "Arguments:"
     echo "  target_device   : Pomera eMMC device in UMS mode (Linux: /dev/sdb, macOS: /dev/rdiskN)"
-    echo "  image_directory : Directory containing backup images (default: ./restore_file or ./backup_file)"
+    echo "  image_directory : Directory containing backup images (default: ./restore_file)"
     echo ""
     echo "Examples:"
     if [ "$OS_NAME" = "Darwin" ]; then
+        echo "  # Restore from default ./restore_file directory"
         echo "  sudo ./restore_emmc.sh /dev/rdisk2"
+        echo ""
+        echo "  # Restore from a specific backup directory"
         echo "  sudo ./restore_emmc.sh /dev/rdisk2 ./backup_file"
     else
+        echo "  # Restore from default ./restore_file directory"
         echo "  sudo ./restore_emmc.sh /dev/sdb"
-        echo "  sudo ./restore_emmc.sh /dev/sdb ./restore_file"
+        echo ""
+        echo "  # Restore from a specific backup directory"
+        echo "  sudo ./restore_emmc.sh /dev/sdb ./backup_file"
     fi
     echo ""
     show_block_devices
@@ -58,14 +59,21 @@ if [ ! -b "$EMMC_DEV" ] && [ ! -c "$EMMC_DEV" ]; then
     exit 1
 fi
 
-# Detect Image Directory (restore_file / backup_file / current directory / user specified)
-IMG_DIR="."
-if [ -n "$IMG_DIR_ARG" ] && [ -d "$IMG_DIR_ARG" ]; then
-    IMG_DIR="$IMG_DIR_ARG"
-elif [ -d "restore_file" ]; then
-    IMG_DIR="restore_file"
-elif [ -d "backup_file" ]; then
-    IMG_DIR="backup_file"
+# Determine Image Directory (user specified argument OR default: ./restore_file)
+IMG_DIR="restore_file"
+if [ -n "$IMG_DIR_ARG" ]; then
+    if [ -d "$IMG_DIR_ARG" ]; then
+        IMG_DIR="$IMG_DIR_ARG"
+    else
+        echo "⚠️ Error: Specified directory '$IMG_DIR_ARG' does not exist."
+        exit 1
+    fi
+fi
+
+if [ ! -d "$IMG_DIR" ]; then
+    echo "⚠️ Error: Restore image directory '$IMG_DIR' not found."
+    echo "Please place your backup image files into './restore_file/' or specify the directory as second argument."
+    exit 1
 fi
 
 echo "Source Image Directory: $IMG_DIR"
@@ -136,16 +144,82 @@ calc_emmc_hash() {
     )
 }
 
+chunk_write_with_progress() {
+    local in_file="$1"
+    local out_dev="$2"
+    local base_offset_mb="${3:-0}"
+    local chunk_mb=32
+    
+    local file_bytes=$(stat -f%z "$in_file" 2>/dev/null || stat -c%s "$in_file" 2>/dev/null || echo 0)
+    local total_mb=$(( (file_bytes + 1048575) / 1048576 ))
+    [ "$total_mb" -eq 0 ] && total_mb=1
+    local total_chunks=$(( (total_mb + chunk_mb - 1) / chunk_mb ))
+    local start_ts=$(date +%s)
+    
+    for c in $(seq 0 $((total_chunks - 1))); do
+        local offset_in_file=$((c * chunk_mb))
+        local count_mb=$chunk_mb
+        if [ $((offset_in_file + count_mb)) -gt "$total_mb" ]; then
+            count_mb=$((total_mb - offset_in_file))
+        fi
+        local target_seek_mb=$((base_offset_mb + offset_in_file))
+        
+        if [ "$OS_NAME" = "Darwin" ]; then
+            dd if="$in_file" of="$out_dev" bs=1M skip="$offset_in_file" seek="$target_seek_mb" count="$count_mb" conv=notrunc status=none
+        else
+            dd if="$in_file" of="$out_dev" bs=1M skip="$offset_in_file" seek="$target_seek_mb" count="$count_mb" conv=fdatasync,notrunc status=none
+        fi
+        
+        local written_mb=$((offset_in_file + count_mb))
+        local now=$(date +%s)
+        local elapsed=$((now - start_ts))
+        local speed_mb_s=0
+        [ "$elapsed" -gt 0 ] && speed_mb_s=$((written_mb / elapsed))
+        
+        local pct=$((written_mb * 100 / total_mb))
+        [ "$pct" -gt 100 ] && pct=100
+        local remain_mb=$((total_mb > written_mb ? total_mb - written_mb : 0))
+        local eta_str="--:--"
+        if [ "$speed_mb_s" -gt 0 ]; then
+            local eta_sec=$((remain_mb / speed_mb_s))
+            local eta_m=$((eta_sec / 60))
+            local eta_s=$((eta_sec % 60))
+            eta_str=$(printf "%02d:%02d" "$eta_m" "$eta_s")
+        fi
+        local el_m=$((elapsed / 60))
+        local el_s=$((elapsed % 60))
+        printf "\r   Progress: [ %d / %d MB ] (%d%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%s" \
+            "$written_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str"
+    done
+    sync
+    echo ""
+}
+
 portable_write() {
     local in_file="$1"
     local out_dev="$2"
     local bs="$3"
-    shift 3
-    if [ "$OS_NAME" = "Darwin" ]; then
-        dd if="$in_file" of="$out_dev" bs="$bs" conv=notrunc "$@" status=progress
-        sync
+    local base_seek_mb="${4:-0}"
+    
+    local file_bytes=$(stat -f%z "$in_file" 2>/dev/null || stat -c%s "$in_file" 2>/dev/null || echo 0)
+    local file_mb=$((file_bytes / 1048576))
+    
+    if [ "$file_mb" -ge 64 ]; then
+        chunk_write_with_progress "$in_file" "$out_dev" "$base_seek_mb"
     else
-        dd if="$in_file" of="$out_dev" bs="$bs" conv=fdatasync,notrunc "$@" status=progress
+        if [ "$base_seek_mb" -gt 0 ]; then
+            if [ "$OS_NAME" = "Darwin" ]; then
+                dd if="$in_file" of="$out_dev" bs="$bs" seek="$base_seek_mb" conv=notrunc status=none
+            else
+                dd if="$in_file" of="$out_dev" bs="$bs" seek="$base_seek_mb" conv=fdatasync,notrunc status=none
+            fi
+        else
+            if [ "$OS_NAME" = "Darwin" ]; then
+                dd if="$in_file" of="$out_dev" bs="$bs" conv=notrunc status=none
+            else
+                dd if="$in_file" of="$out_dev" bs="$bs" conv=fdatasync,notrunc status=none
+            fi
+        fi
         sync
     fi
 }
@@ -164,14 +238,43 @@ fi
 if [ -n "$FULL_IMG" ]; then
     echo ""
     echo "➡️ Found full raw eMMC image: $FULL_IMG"
-    echo "Writing full image to $EMMC_DEV..."
-    portable_write "$FULL_IMG" "$EMMC_DEV" 4M
+    IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null)
+    IMG_MB=$((IMG_SIZE / 1048576))
+    echo "Writing full image to $EMMC_DEV (${IMG_MB} MB)..."
+    chunk_write_with_progress "$FULL_IMG" "$EMMC_DEV" 0
     echo ""
     
-    echo "🔍 Verifying checksum for full image (this may take 1-2 minutes)..."
-    IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null)
+    echo "🔍 Verifying checksum for full image (reading from $EMMC_DEV)..."
+    V_START=$(date +%s)
     ORIG_HASH=$(calc_file_sha256 "$FULL_IMG")
-    EMMC_HASH=$(calc_emmc_hash "$EMMC_DEV" 0 "$IMG_SIZE")
+    
+    TEMP_HASH_FILE="/tmp/emmc_verify_hash.$$"
+    (
+        calc_emmc_hash "$EMMC_DEV" 0 "$IMG_SIZE" > "$TEMP_HASH_FILE" 2>/dev/null
+    ) &
+    HASH_PID=$!
+    
+    while kill -0 "$HASH_PID" 2>/dev/null; do
+        sleep 2
+        NOW=$(date +%s)
+        EL=$((NOW - V_START))
+        EL_M=$((EL / 60))
+        EL_S=$((EL % 60))
+        EST_READ_MB=$((EL * 8))
+        [ "$EST_READ_MB" -gt "$IMG_MB" ] && EST_READ_MB="$IMG_MB"
+        PCT=$((EST_READ_MB * 100 / IMG_MB))
+        REMAIN_MB=$((IMG_MB > EST_READ_MB ? IMG_MB - EST_READ_MB : 0))
+        ETA_SEC=$((REMAIN_MB / 8))
+        ETA_M=$((ETA_SEC / 60))
+        ETA_S=$((ETA_SEC % 60))
+        printf "\r   Verifying: [ ~%d / %d MB ] (~%d%%) | Speed: ~8 MB/s | Elapsed: %02d:%02d | ETA: ~%02d:%02d" \
+            "$EST_READ_MB" "$IMG_MB" "$PCT" "$EL_M" "$EL_S" "$ETA_M" "$ETA_S"
+    done
+    wait "$HASH_PID" || true
+    echo ""
+    
+    EMMC_HASH=$(cat "$TEMP_HASH_FILE" 2>/dev/null || echo "")
+    rm -f "$TEMP_HASH_FILE" 2>/dev/null
     
     if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
         echo "✅ Full image checksum verified OK!"
@@ -189,7 +292,12 @@ fi
 if [ -f "$IMG_DIR/dm250-idb.img" ]; then
     echo ""
     echo "➡️ Restoring IDB (Image Definition Block) to sector 0..."
-    portable_write "$IMG_DIR/dm250-idb.img" "$EMMC_DEV" 512 count=8192
+    if [ "$OS_NAME" = "Darwin" ]; then
+        dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=notrunc status=none
+    else
+        dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=fdatasync,notrunc status=none
+    fi
+    sync
     echo ""
     
     echo -n "🔍 Verifying dm250-idb.img... "
@@ -203,6 +311,17 @@ if [ -f "$IMG_DIR/dm250-idb.img" ]; then
     fi
     RESTORED_COUNT=$((RESTORED_COUNT + 1))
 fi
+
+# Calculate total size of all existing partition files for overall progress
+TOTAL_RESTORE_BYTES=0
+for i in $(seq 1 27); do
+    p_img="$IMG_DIR/mmcblk0p${i}.img"
+    if [ -f "$p_img" ]; then
+        p_sz=$(stat -f%z "$p_img" 2>/dev/null || stat -c%s "$p_img" 2>/dev/null || echo 0)
+        TOTAL_RESTORE_BYTES=$((TOTAL_RESTORE_BYTES + p_sz))
+    fi
+done
+TOTAL_RESTORE_MB=$((TOTAL_RESTORE_BYTES / 1048576))
 
 # Function to get partition offset (in Megabytes, 1024*1024 bytes) - Bash 3.2 / macOS compatible
 get_part_offset() {
@@ -240,6 +359,9 @@ get_part_offset() {
     esac
 }
 
+WRITTEN_RESTORE_BYTES=0
+TOTAL_RESTORE_START=$(date +%s)
+
 # Loop and restore partitions in ascending numerical order
 for i in $(seq 1 27); do
     filename="mmcblk0p${i}.img"
@@ -247,10 +369,36 @@ for i in $(seq 1 27); do
     if [ -f "$img_path" ]; then
         offset=$(get_part_offset "$filename")
         if [ -n "$offset" ]; then
+            p_bytes=$(stat -f%z "$img_path" 2>/dev/null || stat -c%s "$img_path" 2>/dev/null || echo 0)
+            p_mb=$((p_bytes / 1048576))
+            
             echo ""
-            echo "➡️  [${i}/27] Restoring $filename to $EMMC_DEV at offset ${offset}MB..."
-            portable_write "$img_path" "$EMMC_DEV" 1M seek="$offset"
-            echo ""
+            echo "➡️  [${i}/27] Restoring $filename (${p_mb} MB) at offset ${offset}MB..."
+            portable_write "$img_path" "$EMMC_DEV" 1M "$offset"
+            
+            WRITTEN_RESTORE_BYTES=$((WRITTEN_RESTORE_BYTES + p_bytes))
+            WRITTEN_MB=$((WRITTEN_RESTORE_BYTES / 1048576))
+            
+            NOW=$(date +%s)
+            ELAPSED=$((NOW - TOTAL_RESTORE_START))
+            SPEED_MB_S=0
+            [ "$ELAPSED" -gt 0 ] && SPEED_MB_S=$((WRITTEN_MB / ELAPSED))
+            
+            if [ "$TOTAL_RESTORE_MB" -gt 0 ]; then
+                PCT=$((WRITTEN_MB * 100 / TOTAL_RESTORE_MB))
+                [ "$PCT" -gt 100 ] && PCT=100
+                REMAIN_MB=$((TOTAL_RESTORE_MB > WRITTEN_MB ? TOTAL_RESTORE_MB - WRITTEN_MB : 0))
+                ETA_STR="--:--"
+                if [ "$SPEED_MB_S" -gt 0 ]; then
+                    ETA_SEC=$((REMAIN_MB / SPEED_MB_S))
+                    ETA_M=$((ETA_SEC / 60))
+                    ETA_S=$((ETA_SEC % 60))
+                    ETA_STR=$(printf "%02d:%02d" "$ETA_M" "$ETA_S")
+                fi
+                EL_M=$((ELAPSED / 60))
+                EL_S=$((ELAPSED % 60))
+                echo "   Overall Write: [ ${WRITTEN_MB} / ${TOTAL_RESTORE_MB} MB ] (${PCT}%) | Speed: ~${SPEED_MB_S} MB/s | Elapsed: $(printf "%02d:%02d" "$EL_M" "$EL_S") | ETA: ~${ETA_STR}"
+            fi
             
             # Checksum Verification
             echo -n "   🔍 Verifying $filename checksum... "

@@ -2,7 +2,7 @@
 # =====================================================================
 # Pomera DM250 Direct eMMC Backup / Dump Script
 # Dumps eMMC raw image and/or individual partitions from Pomera to PC
-# Cross-Platform Support: Linux (x86_64, aarch64, armhf) & macOS (Apple Silicon / Intel)
+# Cross-Platform Support: Linux & macOS
 # =====================================================================
 set -euo pipefail
 
@@ -11,17 +11,21 @@ cd "$SCRIPT_DIR"
 
 EMMC_DEV="${1:-}"
 OUT_DIR_ARG="${2:-}"
-DUMP_MODE="${3:-all}" # 'all' (full+partitions), 'full' (emmc.img only), 'partitions' (idb+p1..p27)
+DUMP_MODE="${3:-both}"
+case "$DUMP_MODE" in
+    both|raw|parts)
+        ;;
+    *)
+        echo "⚠️ Unknown mode: $DUMP_MODE. Defaulting to 'both'."
+        DUMP_MODE="both"
+        ;;
+esac
 
 OS_NAME="$(uname -s)"
 
 echo "=========================================================="
 echo "  Pomera DM250 eMMC Direct Dump / Backup Tool"
 echo "  Host Platform: $OS_NAME ($(uname -m))"
-echo "=========================================================="
-echo "ℹ️  Expected Performance:"
-echo "   - Read/Dump speed: ~15 - 25 MB/s"
-echo "   - Estimated time for full 7.3GB dump: ~5 - 8 minutes"
 echo "=========================================================="
 
 # Check for block device list helper
@@ -35,33 +39,33 @@ show_block_devices() {
 }
 
 if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; then
-    echo "Usage: sudo ./dump_emmc.sh <target_device> [output_directory] [mode]"
+    echo "Usage: sudo ./backup_emmc.sh <target_device> [output_directory] [mode]"
     echo ""
     echo "Arguments:"
     echo "  target_device     : Pomera eMMC device in UMS mode (Linux: /dev/sdb, macOS: /dev/rdiskN)"
     echo "  output_directory  : Directory to save backup images (default: ./backup_file)"
-    echo "  mode              : Dump mode: 'all' (default), 'full', or 'partitions'"
-    echo "                      - 'all'        : Full emmc.img (7.3GB) + separate p1~p27 images (Best for Stock King Jim OS)"
-    echo "                      - 'full'       : Full emmc.img (7.3GB) only (Best for OpenBSD / Linux & Fast Backup)"
-    echo "                      - 'partitions' : dm250-idb.img + p1~p27 images only (Legacy compatibility)"
+    echo "  mode              : Dump mode: 'both' (default), 'raw', or 'parts'"
+    echo "                      - 'both'  : Full emmc.img (7.3GB) + separate p1~p27 images (Best for Stock King Jim OS)"
+    echo "                      - 'raw'   : Full emmc.img (7.3GB) only (Best for OpenBSD / Linux & Fast Backup)"
+    echo "                      - 'parts' : dm250-idb.img + p1~p27 images only (Legacy compatibility)"
     echo ""
     echo "💡 Best Practices:"
-    echo "  - King Jim Stock OS : Use 'all' (default) to get both full raw dump and all 27 partitions."
-    echo "  - OpenBSD / Linux   : Use 'full' to dump the complete raw disk image (saves time & ~8GB PC disk space)."
+    echo "  - King Jim Stock OS : Use 'both' (default) to get both full raw dump and all 27 partitions."
+    echo "  - OpenBSD / Linux   : Use 'raw' to dump the complete raw disk image (saves time & ~8GB PC disk space)."
     echo ""
     echo "Examples:"
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "  # Stock Pomera Backup (Default: full raw image + 27 partitions)"
-        echo "  sudo ./dump_emmc.sh /dev/rdisk2 ./factory_backup"
+        echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./factory_backup"
         echo ""
         echo "  # OpenBSD / Linux Pomera Backup (Full raw disk image only)"
-        echo "  sudo ./dump_emmc.sh /dev/rdisk2 ./openbsd_backup full"
+        echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./openbsd_backup raw"
     else
         echo "  # Stock Pomera Backup (Default: full raw image + 27 partitions)"
-        echo "  sudo ./dump_emmc.sh /dev/sdb ./factory_backup"
+        echo "  sudo ./backup_emmc.sh /dev/sdb ./factory_backup"
         echo ""
         echo "  # OpenBSD / Linux Pomera Backup (Full raw disk image only)"
-        echo "  sudo ./dump_emmc.sh /dev/sdb ./openbsd_backup full"
+        echo "  sudo ./backup_emmc.sh /dev/sdb ./openbsd_backup raw"
     fi
     echo ""
     show_block_devices
@@ -85,10 +89,12 @@ OUT_DIR_ABS="$(cd "$OUT_DIR" && pwd)"
 
 echo "Destination Directory: $OUT_DIR_ABS"
 echo "Dump Mode: $DUMP_MODE"
-if [ "$DUMP_MODE" = "full" ]; then
-    echo "ℹ️  Mode 'full': Dumping full raw eMMC image (emmc.img). Ideal for OpenBSD, Linux, or quick backups."
-elif [ "$DUMP_MODE" = "all" ]; then
-    echo "ℹ️  Mode 'all': Dumping full raw eMMC image + extracting 27 factory partitions + IDB."
+if [ "$DUMP_MODE" = "raw" ]; then
+    echo "ℹ️  Mode 'raw': Dumping full raw eMMC image (emmc.img). Ideal for OpenBSD, Linux, or quick backups."
+elif [ "$DUMP_MODE" = "both" ]; then
+    echo "ℹ️  Mode 'both': Dumping full raw eMMC image + extracting 27 factory partitions + IDB."
+elif [ "$DUMP_MODE" = "parts" ]; then
+    echo "ℹ️  Mode 'parts': Extracting separate factory partitions + IDB only."
 fi
 
 # Safety check: Block device size
@@ -121,7 +127,7 @@ else
 fi
 AVAIL_GB=$(echo "scale=2; $AVAIL_BYTES / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "Unknown")
 REQ_BYTES=8589934592 # ~8GB
-if [ "$DUMP_MODE" = "all" ]; then
+if [ "$DUMP_MODE" = "both" ]; then
     REQ_BYTES=17179869184 # ~16GB
 fi
 
@@ -217,21 +223,66 @@ get_part_size() {
     esac
 }
 
-# Step 1: Full RAW eMMC Dump (if mode is 'all' or 'full')
-if [ "$DUMP_MODE" = "all" ] || [ "$DUMP_MODE" = "full" ]; then
+# Monitor background dump file size and print fraction progress, speed, elapsed, and ETA
+monitor_dump_progress() {
+    local target_pid="$1"
+    local out_file="$2"
+    local total_bytes="$3"
+    local start_ts="$4"
+    local total_mb=$(( (total_bytes + 1048575) / 1048576 ))
+
+    while kill -0 "$target_pid" 2>/dev/null; do
+        sleep 1
+        local now=$(date +%s)
+        local elapsed=$((now - start_ts))
+        [ "$elapsed" -le 0 ] && continue
+
+        local cur_bytes=$(stat -f%z "$out_file" 2>/dev/null || stat -c%s "$out_file" 2>/dev/null || echo 0)
+        local cur_mb=$((cur_bytes / 1048576))
+
+        if [ "$total_mb" -gt 0 ]; then
+            local pct=$((cur_mb * 100 / total_mb))
+            [ "$pct" -gt 100 ] && pct=100
+            local speed_mb_s=$((cur_mb / elapsed))
+            local remain_mb=$((total_mb > cur_mb ? total_mb - cur_mb : 0))
+            local eta_str="--:--"
+            if [ "$speed_mb_s" -gt 0 ]; then
+                local eta_sec=$((remain_mb / speed_mb_s))
+                local eta_m=$((eta_sec / 60))
+                local eta_s=$((eta_sec % 60))
+                eta_str=$(printf "%02d:%02d" "$eta_m" "$eta_s")
+            fi
+            local el_m=$((elapsed / 60))
+            local el_s=$((elapsed % 60))
+            printf "\r   Progress: [ %d / %d MB ] (%d%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%s" \
+                "$cur_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str"
+        fi
+    done
+    wait "$target_pid" || true
+    echo ""
+}
+
+# Step 1: Full RAW eMMC Dump (if mode is 'both' or 'raw')
+if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "raw" ]; then
     FULL_IMG="$OUT_DIR_ABS/emmc.img"
     echo ""
     echo "➡️ [Step 1] Dumping full raw eMMC image to: $FULL_IMG"
     echo "Reading from $EMMC_DEV (approx ${DEV_GB} GB)..."
-    dd if="$EMMC_DEV" of="$FULL_IMG" bs=4M status=progress conv=sync,noerror
-    echo ""
+    
+    STEP1_START=$(date +%s)
+    dd if="$EMMC_DEV" of="$FULL_IMG" bs=4M conv=sync,noerror status=none &
+    DD_PID=$!
+    
+    TARGET_TOTAL_BYTES="${DEV_BYTES:-7818182656}"
+    monitor_dump_progress "$DD_PID" "$FULL_IMG" "$TARGET_TOTAL_BYTES" "$STEP1_START"
+    
     sync
     IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null || echo "7.3GB")
     echo "✅ Full raw image dump completed: $FULL_IMG ($IMG_SIZE bytes)"
 fi
 
-# Step 2: Separate Partition Extraction (if mode is 'all' or 'partitions')
-if [ "$DUMP_MODE" = "all" ] || [ "$DUMP_MODE" = "partitions" ]; then
+# Step 2: Separate Partition Extraction (if mode is 'both' or 'parts')
+if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
     echo ""
     echo "➡️ [Step 2] Extracting IDB and separate partition images (mmcblk0p1 ~ mmcblk0p27)..."
 
@@ -258,12 +309,30 @@ if [ "$DUMP_MODE" = "all" ] || [ "$DUMP_MODE" = "partitions" ]; then
             out_file="$OUT_DIR_ABS/$filename"
             if [ "$size" -gt 0 ]; then
                 echo -n "   [${i}/27] Extracting $filename (${size}MB at offset ${offset}MB)... "
-                dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" conv=sync,noerror status=none
+                if [ "$SRC_INPUT" = "$EMMC_DEV" ] && [ "$size" -ge 64 ]; then
+                    echo ""
+                    part_start=$(date +%s)
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" conv=sync,noerror status=none &
+                    part_pid=$!
+                    monitor_dump_progress "$part_pid" "$out_file" "$((size * 1048576))" "$part_start"
+                else
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" conv=sync,noerror status=none
+                    echo "✅ Done"
+                fi
             else
                 echo -n "   [${i}/27] Extracting $filename (to end of device at offset ${offset}MB)... "
-                dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" conv=sync,noerror status=none
+                if [ "$SRC_INPUT" = "$EMMC_DEV" ]; then
+                    echo ""
+                    part_start=$(date +%s)
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" conv=sync,noerror status=none &
+                    part_pid=$!
+                    rem_est_bytes=657457152 # ~627MB remainder
+                    monitor_dump_progress "$part_pid" "$out_file" "$rem_est_bytes" "$part_start"
+                else
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" conv=sync,noerror status=none
+                    echo "✅ Done"
+                fi
             fi
-            echo "✅ Done"
         fi
     done
     sync
