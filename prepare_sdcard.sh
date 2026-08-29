@@ -263,7 +263,7 @@ else
         echo "Applying U-Boot Read-Write UMS patch..."
         patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_ums_readwrite.patch" || true
     fi
-    BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-WRITE); echo   eMMC is mounted as READ-WRITE USB drive to PC.; echo   Run restore_emmc.sh to flash/restore to Pomera; echo =================================================; echo; ums 0 mmc 0"
+    BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-WRITE); echo   eMMC is mounted as READ-WRITE USB drive to PC.; echo   Run backup_emmc.sh (Backup) or restore_emmc.sh (Restore); echo =================================================; echo; ums 0 mmc 0"
 fi
 
 echo "Patching U-Boot configuration for on-screen banner and automatic USB Mass Storage (UMS)..."
