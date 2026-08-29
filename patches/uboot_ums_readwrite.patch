@@ -4,7 +4,7 @@
  static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
  {
  	struct fsg_dev *fsg = fsg_from_func(f);
-+	printf("\n>>> [USB] Connected to Host PC (eMMC Ready) <<<\n\n");
++	printf("\n>>> [USB] Connected to Host PC (eMMC Ready - READ-WRITE) <<<\n\n");
  	fsg->common->new_fsg = fsg;
  	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
  	return 0;

@@ -69,14 +69,27 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 ## 🚀 SDカード UMS方式によるバックアップ＆復旧手順
 
 ### ステップ 1: リカバリ用SDブートローダーの生成
+
 以下のスクリプトを実行して、U-Boot UMSバイナリを自動ビルド・生成します：
 
 ```bash
+# 【デフォルト: 安全な Read-Only モード（バックアップ推奨）】
+# PCからの誤書き込み・上書きを 100% 物理ブロックする安全モードです。
 ./prepare_sdcard.sh
+
+# 【書き込み許可: Read-Write モード（リストア・復旧時のみ使用）】
+# ポメラ内蔵eMMCへのデータ書き戻しを行いたい場合はこちらを指定します。
+./prepare_sdcard.sh --readwrite
 ```
 
+> [!TIP]
+> **🛡️ 安全第一の Read-Only（読み取り専用）デフォルト仕様**
+> * 通常の `./prepare_sdcard.sh` を実行すると、**ハードウェアライトプロテクト（書き込み禁止）** が有効化されたブートローダーが生成されます。
+> * これにより、PC側で誤って `dd` 上書きを実行したり、macOSで誤って「初期化」を押しても、**Pomera 側が書き込みを 100% 拒否するため本体データは一切破損しません**。
+> * ポメラへバックアップを書き戻す（復旧する）時のみ、`--readwrite`（または `--rw`）を指定して SD カードを作成してください。
+
 ※ 完了すると、`sdcard_images/` フォルダ内に `idbloader.img` と `uboot.img` が生成されます。
-（直接SDカードへ書き込む場合は、`./prepare_sdcard.sh /dev/sdX` または macOSで `./prepare_sdcard.sh /dev/rdiskN` と指定することも可能です）
+（直接SDカードへ書き込む場合は、`./prepare_sdcard.sh /dev/sdX` や `./prepare_sdcard.sh --rw /dev/rdiskN` と指定することも可能です）
 
 ---
 
@@ -125,14 +138,15 @@ sync
 2. **USBケーブルは抜いた状態**にします。
 3. **[電源ボタン] のみを約3〜4秒間長押し**して電源を入れます（SDカード挿入時は電源ボタンのみの長押しで自動的にSDカードから最優先起動します）。
    * *(※ 電源を完全に切りたい・強制オフにしたい場合は、**[電源ボタン] を10〜11秒間長押し** してください)*
-4. 画面バックライトが点灯し、Pomera の液晶画面に案内バナーが表示されます（※ 3秒間のカウントダウン後に自動でUMSモードが開始されます）：
+4. 画面バックライトが点灯し、Pomera の液晶画面にモードに応じた案内バナーが表示されます（※ 3秒間のカウントダウン後に自動でUMSモードが開始されます）：
 
 ```text
 =================================================
   [Pomera DM250 PC Storage Mount]
-  USB Mass Storage (UMS) Mode Active
-  eMMC is mounted as a USB drive to PC.
-  Run backup_emmc.sh (Backup) or restore_emmc.sh (Restore)
+  USB Mass Storage Mode Active (READ-ONLY)
+  eMMC is mounted as READ-ONLY USB drive to PC.
+  Write operations are 100% BLOCKED.
+  Run backup_emmc.sh to backup to PC.
 =================================================
 
 UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
@@ -216,6 +230,11 @@ sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 
 ### ステップ 4-B: 【リストア復旧】バックアップを Pomera に書き戻し (`restore_emmc.sh`)
 
+> [!IMPORTANT]
+> **⚠️ リストア時の注意: Read-Write モードの SD カードが必要です**
+> デフォルトで作成された SD カードは **Read-Only（書き込み禁止）** になっています。
+> リストア（復旧・書き戻し）を行う際は、あらかじめ **`./prepare_sdcard.sh --readwrite`（または `--rw`）** で書き込みを許可した SD カードを作成・挿入して Pomera を起動してください。
+
 PC側でリストアスクリプトを実行します（※ `<target_device>` には **Linux: `/dev/sdX`**、**macOS: `/dev/rdiskN`** を指定）：
 
 ```bash
@@ -249,6 +268,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 | 現象 | 原因と対策 |
 | :--- | :--- |
+| **`restore_emmc.sh` 実行時に `Read-only file system` や書き込みエラーが出る** | ・挿入されている SD カードがデフォルトの **Read-Only（書き込み禁止）モード** で作成されています。<br>・**対策**: PC で `./prepare_sdcard.sh --readwrite <sd_device>` を実行し、書き込み許可モードの SD カードを作成して再度お試しください。 |
 | **macOSで「読み取れないディスク」「初期化/取り出す/無視」が出る** | ・**必ず「無視」を選択してください**。<br>・「初期化」を選ぶと Pomera 内部の全データが消去・破損します。「取り出す」を選ぶと接続が切断されます。Pomera のeMMCはmacOS標準外のLinux/Android形式のため正常な警告です。 |
 | **Pomera 画面に `CTRL+C - Operation aborted` と出て勝手に切断される** | ・macOSに接続後、確認プロンプトのまま数十秒放置されたため、macOSのUSB省電力機構（サスペンド）により切断されました。<br>・**対策**: Pomera の電源ボタンを10〜11秒長押しして完全OFF → 再度3〜4秒長押しで起動し、USB接続後は速やかにスクリプトを実行して確認プロンプト（`yes`）を進めてください。 |
 | **電源の切り方・SDカードからの起動方法がわからない** | ・**完全電源OFF**: 電源ボタンを **10〜11秒間長押し**。<br>・**SDカードからの起動**: SDカードを挿入後、**電源ボタンのみを3〜4秒間長押し**（他のキーを押す必要はありません）。 |
@@ -261,10 +281,11 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 ## 📁 スクリプト構成一覧
 
-* [`prepare_sdcard.sh`](./prepare_sdcard.sh) : SDカード用 U-Boot UMS ブートローダー生成スクリプト
+* [`prepare_sdcard.sh`](./prepare_sdcard.sh) : SDカード用 U-Boot UMS ブートローダー生成スクリプト（デフォルト: 安全な Read-Only / `--readwrite` で書き込み許可）
 * [`backup_emmc.sh`](./backup_emmc.sh) : UMSマウントされたeMMCからPCへ完全バックアップ（フルRAW & 27パーティション）を取得するスクリプト
 * [`restore_emmc.sh`](./restore_emmc.sh) : UMSマウントされたeMMCへの安全なdd書き戻し＆自動検証スクリプト
-* [`patches/uboot_usb_connect_notify.patch`](./patches/uboot_usb_connect_notify.patch) : U-Boot画面用USB接続状態通知パッチ
+* [`patches/uboot_ums_readonly.patch`](./patches/uboot_ums_readonly.patch) : U-Boot Read-Only UMS パッチ（ライトプロテクト保護）
+* [`patches/uboot_ums_readwrite.patch`](./patches/uboot_ums_readwrite.patch) : U-Boot Read-Write UMS パッチ（書き込み許可＆接続通知）
 
 ---
 

@@ -1,0 +1,27 @@
+--- a/drivers/usb/gadget/f_mass_storage.c
++++ b/drivers/usb/gadget/f_mass_storage.c
+@@ -2267,6 +2267,7 @@ static int do_set_interface(struct fsg_common *common, struct fsg_dev *fsg)
+ static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
+ {
+ 	struct fsg_dev *fsg = fsg_from_func(f);
++	printf("\n>>> [USB] Connected to Host PC (eMMC Ready - READ-ONLY) <<<\n\n");
+ 	fsg->common->new_fsg = fsg;
+ 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
+ 	return 0;
+@@ -2275,6 +2276,7 @@ static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
+ static void fsg_disable(struct usb_function *f)
+ {
+ 	struct fsg_dev *fsg = fsg_from_func(f);
++	printf("\n>>> [USB] Disconnected (Reboot Pomera to reconnect) <<<\n\n");
+ 	fsg->common->new_fsg = NULL;
+ 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
+ }
+@@ -2420,6 +2422,8 @@ static int fsg_common_init(struct fsg_common *common,
+ 		curlun->cdrom = lun_cfg->cdrom;
+ 		curlun->ro = lun_cfg->ro;
+ 		curlun->initially_ro = curlun->ro;
++		curlun->ro = 1;
++		curlun->initially_ro = 1;
+ 		curlun->removable = lun_cfg->removable;
+ 		curlun->dev.release = fsg_lun_release;
+ 		curlun->dev.parent = &cdev->gadget->dev;

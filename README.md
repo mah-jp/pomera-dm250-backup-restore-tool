@@ -69,14 +69,26 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 ## 🚀 SD Card UMS Backup & Recovery Guide
 
 ### Step 1: Build the Recovery SD Bootloader
+
 Run the following script to automatically compile and generate the U-Boot UMS binaries:
 
 ```bash
+# [Default: Safe READ-ONLY Mode (Recommended for Backup)]
+# 100% write-protected against accidental PC overwrites.
 ./prepare_sdcard.sh
+
+# [READ-WRITE Mode (Required ONLY when restoring/flashing Pomera)]
+./prepare_sdcard.sh --readwrite
 ```
 
+> [!TIP]
+> **🛡️ Safety-First Read-Only Default Specification**
+> * Running `./prepare_sdcard.sh` without options builds a **hardware write-protected** bootloader.
+> * Even if you accidentally run `dd` to the Pomera disk or click "Initialize" on macOS, **the Pomera firmware blocks all writes 100%, keeping your device data completely safe**.
+> * When you need to flash/restore backup images back to Pomera, build the SD card with `--readwrite` (or `--rw`).
+
 * Upon completion, `idbloader.img` and `uboot.img` will be generated inside the `sdcard_images/` directory.
-* (You can also specify the target drive directly to write in one step: `./prepare_sdcard.sh /dev/sdX` on Linux or `./prepare_sdcard.sh /dev/rdiskN` on macOS).
+* (You can also specify the target drive directly to write in one step: `./prepare_sdcard.sh /dev/sdX` or `./prepare_sdcard.sh --rw /dev/rdiskN`).
 
 ---
 
@@ -125,14 +137,15 @@ sync
 2. **Leave the USB cable disconnected.**
 3. **Press and hold only the [Power Button] for 3–4 seconds** to turn on the device (when the SD card is inserted, it boots from the SD card automatically).
    * *(To force power off or perform a hard reset, **press and hold the Power Button for 10–11 seconds**).*
-4. The backlight turns on, and the LCD displays the UMS startup banner (UMS mode launches automatically after a 3-second countdown):
+4. The backlight turns on, and the LCD displays the mode-specific UMS startup banner (UMS mode launches automatically after a 3-second countdown):
 
 ```text
 =================================================
   [Pomera DM250 PC Storage Mount]
-  USB Mass Storage (UMS) Mode Active
-  eMMC is mounted as a USB drive to PC.
-  Run backup_emmc.sh (Backup) or restore_emmc.sh (Restore)
+  USB Mass Storage Mode Active (READ-ONLY)
+  eMMC is mounted as READ-ONLY USB drive to PC.
+  Write operations are 100% BLOCKED.
+  Run backup_emmc.sh to backup to PC.
 =================================================
 
 UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
@@ -216,6 +229,11 @@ With this toolkit, you can switch between the factory Pomera firmware and custom
 
 ### Step 4-B: [Restore] Flash Backup Back to Pomera (`restore_emmc.sh`)
 
+> [!IMPORTANT]
+> **⚠️ Restore Prerequisite: Read-Write SD Card Required**
+> SD cards prepared with default settings are **Read-Only (write-protected)** for backup safety.
+> Before restoring, build and insert an SD card configured in Read-Write mode: **`./prepare_sdcard.sh --readwrite` (or `--rw`)**.
+
 Run the restore script from your PC *(Replace `<target_device>` with **Linux: `/dev/sdX`**, **macOS: `/dev/rdiskN`**)*:
 
 ```bash
@@ -249,23 +267,24 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 | Issue / Symptom | Cause & Solution |
 | :--- | :--- |
+| **`restore_emmc.sh` fails with `Read-only file system` or write errors** | • The SD card was built with the default **Read-Only (Safe Mode)**.<br>• **Fix**: Re-run `./prepare_sdcard.sh --readwrite <sd_device>` to build and flash a write-enabled SD card. |
 | **macOS shows "The disk you attached was not readable" (Initialize / Eject / Ignore)** | • **Always click "Ignore"**.<br>• "Initialize" will destroy Pomera data; "Eject" will disconnect the USB drive. This warning is normal because the Pomera eMMC uses a non-standard Linux/Android partition layout that macOS cannot mount natively. |
 | **Pomera LCD shows `CTRL+C - Operation aborted` and disconnects** | • Caused by macOS USB power-saving auto-suspend after idling on confirmation prompts.<br>• **Fix**: Hold Pomera power button 10–11s to turn OFF → hold 3–4s to turn ON. After connecting USB, immediately run `backup_emmc.sh` or `restore_emmc.sh` and type `yes` to begin transfer. |
 | **How to force power off or boot from SD card** | • **Full Power OFF**: Press and hold the Power button for **10–11 seconds**.<br>• **Boot from SD**: Insert the SD card and hold the Power button for **3–4 seconds** (no other keys needed). |
 | **`/dev/sdX` or `/dev/rdiskN` does not appear on PC after connecting USB** | • Powering on with the USB cable already plugged in may prevent UMS initialization. Follow the sequence: **"Power ON with USB unplugged → Wait for LCD banner → Connect USB"**.<br>• Check that the SD card is fully inserted. |
 | **Reconnecting USB cable is not recognized** | • Due to Rockchip USB controller hardware characteristics, re-plugging USB while in UMS idle mode is not auto-detected. **Hold Power button 10–11s to turn OFF, then 3–4s to power on again.** |
 | **Device does not power on / Screen stays black** | • Battery may be fully drained. Connect a USB charger and let it charge before retrying.<br>• Hold Power button for 10–11 seconds for hard reset, then try turning on again (3–4s). |
-| **Size error in `restore_emmc.sh` or `backup_emmc.sh`** | • Ensure the specified target device node is the Pomera (~7.3 GB / 7,456 MB–8,000 MB) and not the host PC drive or SD card. |
 | **Backup files not found during restore** | • Place `mmcblk0p1.img`–`mmcblk0p27.img` or `emmc.img` inside the `restore_file/` directory, or pass the backup directory path as an argument (e.g. `./restore_emmc.sh /dev/rdisk2 ./backup_file`). |
 
 ---
 
 ## 📁 Repository Contents & Scripts
 
-* [`prepare_sdcard.sh`](./prepare_sdcard.sh): Automated build script for U-Boot UMS SD card bootloader
+* [`prepare_sdcard.sh`](./prepare_sdcard.sh): Automated build script for U-Boot UMS SD card bootloader (Default: Read-Only / `--readwrite` for restore)
 * [`backup_emmc.sh`](./backup_emmc.sh): Backup tool for dumping eMMC to PC (Full RAW & 27 individual partitions)
 * [`restore_emmc.sh`](./restore_emmc.sh): Safe restore tool with real-time SHA256 read-back verification
-* [`patches/uboot_usb_connect_notify.patch`](./patches/uboot_usb_connect_notify.patch): Patch for real-time USB connection status notifications on the Pomera LCD
+* [`patches/uboot_ums_readonly.patch`](./patches/uboot_ums_readonly.patch): Patch for U-Boot Read-Only UMS mode (hardware write-protect)
+* [`patches/uboot_ums_readwrite.patch`](./patches/uboot_ums_readwrite.patch): Patch for U-Boot Read-Write UMS mode with connection notify
 
 ---
 

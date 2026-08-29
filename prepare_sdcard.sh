@@ -10,16 +10,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 TARGET_SD_DEV=""
+BUILD_MODE="ro" # Default: Read-Only for maximum backup safety
 
 show_help() {
     echo "Usage: $0 [options] [/dev/sdX | /dev/rdiskN]"
     echo ""
     echo "Options:"
-    echo "  --help, -h           Show this help message"
+    echo "  --readonly, --ro, -r   Build READ-ONLY bootloader (Default: 100% write-protected for safe backup)"
+    echo "  --readwrite, --rw, -w  Build READ-WRITE bootloader (Allows restore/flashing eMMC back to Pomera)"
+    echo "  --help, -h             Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                   # Build SD bootloader images into ./sdcard_images/"
-    echo "  $0 /dev/sdb          # Build and flash directly to SD card /dev/sdb"
+    echo "  $0                     # Build default READ-ONLY bootloader images into ./sdcard_images/"
+    echo "  $0 /dev/sdb            # Build READ-ONLY bootloader & flash directly to SD card"
+    echo "  $0 --rw /dev/sdb       # Build READ-WRITE bootloader & flash directly to SD card"
     exit 0
 }
 
@@ -29,11 +33,17 @@ for arg in "$@"; do
         --help|-h)
             show_help
             ;;
+        --readwrite|--rw|-w)
+            BUILD_MODE="rw"
+            ;;
+        --readonly|--ro|-r)
+            BUILD_MODE="ro"
+            ;;
         *)
             if [ -z "$TARGET_SD_DEV" ]; then
                 TARGET_SD_DEV="$arg"
             else
-                echo "⚠️ Unknown argument: $arg"
+                echo "Warning: Unknown argument: $arg"
                 show_help
             fi
             ;;
@@ -216,8 +226,13 @@ cp arch/arm/boot/dts/rockchip/pomera-dm250.dtb "$WORK_DIR/pomera-dm250.dtb"
 cd "$WORK_DIR"
 rm -rf linux-dm250
 
-# Clone and compile U-Boot
+# Step 3: Clone and compile U-Boot
 echo "=== Step 3: Cloning and Compiling U-Boot with UMS support ==="
+if [ "$BUILD_MODE" = "ro" ]; then
+    echo "🔒 Target Mode: READ-ONLY (Safe mode, 100% write-protected against accidental overwrites)"
+else
+    echo "✏️ Target Mode: READ-WRITE (Required for restore/flashing eMMC back to Pomera)"
+fi
 cd "$WORK_DIR"
 echo "Cloning U-Boot repository (pomera-dm250 branch, shallow depth=1)..."
 git clone -b pomera-dm250 --depth=1 https://github.com/jcs/u-boot.git
@@ -236,13 +251,22 @@ portable_sed 's/CONFIG_PREBOOT=.*/CONFIG_PREBOOT="setenv stdin serial,tc3589x-ke
 echo "CONFIG_TOOLS_MKEFICAPSULE=n" >> configs/pomera-dm250_defconfig
 echo "# CONFIG_TOOLS_MKEFICAPSULE is not set" >> configs/pomera-dm250_defconfig
 
-# Apply USB connection notify patch if available
-if [ -f "$SCRIPT_DIR/patches/uboot_usb_connect_notify.patch" ]; then
-    patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_usb_connect_notify.patch" || true
+# Apply USB connection notify and mode patch based on mode
+if [ "$BUILD_MODE" = "ro" ]; then
+    if [ -f "$SCRIPT_DIR/patches/uboot_ums_readonly.patch" ]; then
+        echo "Applying U-Boot Read-Only UMS patch (Hardware Write-Protect)..."
+        patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_ums_readonly.patch" || true
+    fi
+    BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-ONLY); echo   eMMC is mounted as READ-ONLY USB drive to PC.; echo   Write operations are 100% BLOCKED.; echo   Run backup_emmc.sh to backup to PC.; echo =================================================; echo; ums 0 mmc 0"
+else
+    if [ -f "$SCRIPT_DIR/patches/uboot_ums_readwrite.patch" ]; then
+        echo "Applying U-Boot Read-Write UMS patch..."
+        patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_ums_readwrite.patch" || true
+    fi
+    BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-WRITE); echo   eMMC is mounted as READ-WRITE USB drive to PC.; echo   Run restore_emmc.sh to flash/restore to Pomera; echo =================================================; echo; ums 0 mmc 0"
 fi
 
 echo "Patching U-Boot configuration for on-screen banner and automatic USB Mass Storage (UMS)..."
-BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage (UMS) Mode Active; echo   eMMC is mounted as a USB drive to PC.; echo   Run backup_emmc.sh (Backup) or restore_emmc.sh (Restore); echo =================================================; echo; ums 0 mmc 0"
 portable_sed "s|CONFIG_BOOTCOMMAND=.*|CONFIG_BOOTCOMMAND=\"$BOOTCMD_STR\"|" configs/pomera-dm250_defconfig
 
 # Configure and compile U-Boot
@@ -295,7 +319,13 @@ if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
 fi
 
 echo "=========================================================="
-echo "🎉 SD Card Bootloader Images Ready in: ./sdcard_images/"
+if [ "$BUILD_MODE" = "ro" ]; then
+    echo "🎉 SD Card Bootloader Ready in: ./sdcard_images/ [READ-ONLY Safe Mode]"
+    echo "   - Status        : 100% Write-Protected (Backup Only)"
+else
+    echo "🎉 SD Card Bootloader Ready in: ./sdcard_images/ [READ-WRITE Mode]"
+    echo "   - Status        : Write-Enabled (Allows Flashing/Restore)"
+fi
 echo "   - idbloader.img (Sector 64)"
 echo "   - uboot.img     (Sector 16384)"
 echo "=========================================================="
