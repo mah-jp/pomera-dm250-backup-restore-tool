@@ -289,6 +289,11 @@ mv "$WORK_DIR/idbloader.img" "$SD_DIR/"
 mv "$WORK_DIR/uboot.img" "$SD_DIR/"
 cd "$SCRIPT_DIR"
 
+# Restore directory/file ownership to regular user if run via sudo
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    chown -R "$SUDO_USER" "$SD_DIR" 2>/dev/null || true
+fi
+
 echo "=========================================================="
 echo "🎉 SD Card Bootloader Images Ready in: ./sdcard_images/"
 echo "   - idbloader.img (Sector 64)"
@@ -367,7 +372,7 @@ else
     echo "3. Insert the SD card into Pomera DM250."
     echo "4. Make sure USB-C cable is UNPLUGGED initially."
     echo "5. Turn on Pomera: Press and hold [Power Button] ONLY for 3~4 seconds (until screen turns on)."
-    echo "   (※ To completely turn OFF Pomera at any time, press and hold [Power Button] for 10~11 seconds)"
+    echo "   (Note: To completely turn OFF Pomera at any time, press and hold [Power Button] for 10~11 seconds)"
     echo "6. Once the screen turns on with recovery banner, connect USB-C cable to PC."
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "   🍏 macOS Tip: If an 'unreadable disk' dialog pops up, ALWAYS choose 'Ignore'."

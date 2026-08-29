@@ -87,6 +87,15 @@ fi
 mkdir -p "$OUT_DIR"
 OUT_DIR_ABS="$(cd "$OUT_DIR" && pwd)"
 
+# Function to ensure output directory and files belong to real user (not root)
+fix_ownership() {
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        chown -R "$SUDO_USER" "$OUT_DIR_ABS" 2>/dev/null || true
+    fi
+}
+trap fix_ownership EXIT INT TERM
+fix_ownership
+
 echo "Destination Directory: $OUT_DIR_ABS"
 echo "Dump Mode: $DUMP_MODE"
 if [ "$DUMP_MODE" = "raw" ]; then
@@ -426,6 +435,11 @@ END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 MINUTES=$((ELAPSED / 60))
 SECONDS=$((ELAPSED % 60))
+
+# Restore directory/file ownership to regular user if run via sudo
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    chown -R "$SUDO_USER" "$OUT_DIR_ABS" 2>/dev/null || true
+fi
 
 echo ""
 echo "=========================================================="
