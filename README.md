@@ -96,7 +96,7 @@ Run the following script to automatically compile and generate the U-Boot UMS bi
 Insert the SD card into your PC and identify its device node:
 
 * **Linux**: `lsblk` (e.g., `/dev/sdb` or `/dev/sdc`)
-* **macOS**: `diskutil list` (e.g., `/dev/rdisk2` or `/dev/rdisk3`)
+* **macOS**: `diskutil list external` (Filters for external storage only. e.g., `/dev/rdisk2` or `/dev/rdisk3`)
 
 Write the bootloader directly to the raw sectors of the SD card using `dd`:
 
@@ -168,7 +168,7 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 
 6. Confirm that the Pomera internal eMMC (~7.3 GB) is recognized as a block device on your PC:
    * **Linux**: `lsblk` (e.g., `/dev/sdb`)
-   * **macOS**: `diskutil list` (e.g., `/dev/rdisk5`)
+   * **macOS**: `diskutil list external` (e.g., `/dev/rdisk5`)
 
 ---
 

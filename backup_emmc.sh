@@ -30,11 +30,23 @@ echo "=========================================================="
 
 # Check for block device list helper
 show_block_devices() {
-    echo "Current block devices detected on system:"
+    echo "Current external block devices detected on system:"
     if [ "$OS_NAME" = "Darwin" ]; then
-        diskutil list
+        local ext_disks
+        ext_disks=$(diskutil list external 2>/dev/null || true)
+        if [ -n "$ext_disks" ]; then
+            echo "$ext_disks"
+        else
+            echo "   (No external disks detected. Make sure Pomera is in UMS mode and connected via USB.)"
+        fi
     else
-        lsblk -e 7 -o NAME,SIZE,TYPE,MODEL,TRAN,MOUNTPOINTS
+        local ext_disks
+        ext_disks=$(lsblk -d -o NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -E "usb|mmc" || true)
+        if [ -n "$ext_disks" ]; then
+            echo "$ext_disks"
+        else
+            lsblk -e 7 -o NAME,SIZE,TYPE,MODEL,TRAN,MOUNTPOINTS 2>/dev/null || true
+        fi
     fi
 }
 

@@ -97,7 +97,7 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 SDカードをPCに挿入し、デバイス名を確認します：
 
 * **Linux**: `lsblk`（例: `/dev/sdb` や `/dev/sdc`）
-* **macOS**: `diskutil list`（例: `/dev/rdisk2` や `/dev/rdisk3`）
+* **macOS**: `diskutil list external`（外付けストレージのみ抽出表示。例: `/dev/rdisk2` や `/dev/rdisk3`）
 
 確認したデバイス名に対して、以下のコマンドでブートセクタ領域に書き込みます：
 
@@ -169,7 +169,7 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 
 6. PCのターミナルで確認し、Pomera 内蔵eMMCがストレージデバイス（約 7.3GB）として認識されていることを確認します：
    * **Linux**: `lsblk`（出力例: `/dev/sdb`）
-   * **macOS**: `diskutil list`（出力例: `/dev/rdisk5`）
+   * **macOS**: `diskutil list external`（出力例: `/dev/rdisk5`）
 
 ---
 

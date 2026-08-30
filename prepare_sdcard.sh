@@ -369,6 +369,32 @@ flash_to_sd() {
     fi
 }
 
+if [ -z "$TARGET_SD_DEV" ]; then
+    echo "🔍 Scanning for SD Card / External Disks..."
+    echo ""
+    if [ "$OS_NAME" = "Darwin" ]; then
+        echo "Available External Disks (macOS):"
+        ext_disks=$(diskutil list external 2>/dev/null || true)
+        if [ -n "$ext_disks" ]; then
+            echo "$ext_disks"
+        else
+            echo "   (No external disks detected. Make sure SD card reader is connected.)"
+        fi
+        echo ""
+        read -p "Enter target SD card device (e.g. /dev/rdisk4 or disk4) or press Enter to skip: " TARGET_SD_DEV
+    else
+        echo "Available External Disks (Linux):"
+        ext_disks=$(lsblk -d -o NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -E "usb|mmc" || true)
+        if [ -n "$ext_disks" ]; then
+            echo "$ext_disks"
+        else
+            lsblk -e 7 -o NAME,SIZE,TYPE,MODEL,TRAN 2>/dev/null || true
+        fi
+        echo ""
+        read -p "Enter target SD card device (e.g. /dev/sdb) or press Enter to skip: " TARGET_SD_DEV
+    fi
+fi
+
 if [ -n "$TARGET_SD_DEV" ]; then
     if [ "$OS_NAME" = "Darwin" ] && [[ "$TARGET_SD_DEV" =~ ^disk[0-9]+ ]]; then
         TARGET_SD_DEV="/dev/$TARGET_SD_DEV"
@@ -382,7 +408,7 @@ else
     echo "Next steps to flash to SD card:"
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "1. Identify your SD card device (e.g. /dev/disk4):"
-        echo "   diskutil list"
+        echo "   diskutil list external"
         echo "2. Unmount the SD card volume (Required on macOS before dd):"
         echo "   diskutil unmountDisk /dev/diskN"
         echo "3. Run the following dd commands to flash raw boot sectors (/dev/rdiskN):"
@@ -392,7 +418,7 @@ else
         echo "   sync"
     else
         echo "1. Insert your SD card into your PC and identify its device (e.g. /dev/sda):"
-        echo "   lsblk"
+        echo "   lsblk -d -o NAME,SIZE,MODEL,TRAN | grep -E \"usb|mmc\""
         echo "2. Run the following dd commands to flash raw boot sectors:"
         echo "   sudo dd if=sdcard_images/idbloader.img of=/dev/sdX bs=512 seek=64 conv=fdatasync"
         echo "   sudo dd if=sdcard_images/uboot.img of=/dev/sdX bs=512 seek=16384 conv=fdatasync"
