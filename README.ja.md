@@ -1,14 +1,14 @@
-# Pomera DM250 Backup & Recovery Toolkit (Pomera DM250 バックアップ＆復旧ツールキット)
+# Pomera DM250 Backup & Restore Tool (Pomera DM250 バックアップ＆復元ツール)
 
 [English](README.md) | [日本語](README.ja.md)
 
-本ツールキットは、**キングジム Pomera DM250** の内蔵eMMCをPCへバックアップしたり、保存したバックアップイメージから本体を書き戻して復旧するためのツールキットです。本体を分解することなく、**SDカードブートによる USB Mass Storage (UMS) モード** を経由してPCからeMMCの読み書きを行います。
+本ツールは、**キングジム Pomera DM250** の内蔵eMMCをPCへバックアップしたり、保存したバックアップイメージから本体を書き戻して復元するためのツールです。本体を分解することなく、**SDカードブートによる USB Mass Storage (UMS) モード** を経由してPCからeMMCの読み書きを行います。
 
 * **対応ホストOS**: Linux, macOS
 
 ---
 
-## 💡 仕組みの原理 (なぜバックアップや復旧ができるのか？)
+## 💡 仕組みの原理 (なぜバックアップや復元ができるのか？)
 
 Pomera DM250 に搭載されている SoC（**Rockchip RK3128**）の BootROM には、ハードウェアレベルで以下の仕様が組み込まれています：
 
@@ -18,12 +18,12 @@ Pomera DM250 に搭載されている SoC（**Rockchip RK3128**）の BootROM �
    * SDカードを挿入して **[電源ボタン] を押すだけ** で、SDカードに配置された保守用ブートローダー（U-Boot）が自動起動します（※SDカードを抜けば通常の Pomera OS が起動します）。
 3. **USB Mass Storage (UMS) 連携**:
    * SDカードから起動した U-Boot が、Pomera の内蔵eMMCを **USB外付けドライブ（約7.3GB）** としてPCに公開します。
-   * これにより、PC側から **内蔵eMMCのデータをPCへ丸ごとバックアップ** したり、**バックアップイメージを直接書き戻して復旧** することができます。
+   * これにより、PC側から **内蔵eMMCのデータをPCへ丸ごとバックアップ** したり、**バックアップイメージを直接書き戻して復元** することができます。
 
 ```
 [SDカード挿入] ---> [Pomera電源ON] ---> [U-Boot (UMSモード)] ---> [PCとUSB接続] ---> [外付けUSBディスクとして認識]
                                                                                              ├─► [PCへ完全バックアップ (backup_emmc.sh)]
-                                                                                             └─► [PCから書き戻し復旧 (restore_emmc.sh)]
+                                                                                             └─► [PCから書き戻し復元 (restore_emmc.sh)]
 ```
 
 ---
@@ -66,9 +66,9 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 
 ---
 
-## 🚀 SDカード UMS方式によるバックアップ＆復旧手順
+## 🚀 SDカード UMS方式によるバックアップ＆復元手順
 
-### ステップ 1: リカバリ用SDブートローダーの生成
+### ステップ 1: SDブートローダーの生成
 
 以下のスクリプトを実行して、U-Boot UMSバイナリを自動ビルド・生成します：
 
@@ -77,7 +77,7 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 # PCからの誤書き込み・上書きを 100% 物理ブロックする安全モードです。
 ./prepare_sdcard.sh
 
-# 【書き込み許可: Read-Write モード（リストア・復旧時のみ使用）】
+# 【書き込み許可: Read-Write モード（リストア・復元時のみ使用）】
 # ポメラ内蔵eMMCへのデータ書き戻しを行いたい場合はこちらを指定します。
 ./prepare_sdcard.sh --readwrite
 ```
@@ -86,7 +86,7 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 > **🛡️ 安全第一の Read-Only（読み取り専用）デフォルト仕様**
 > * 通常の `./prepare_sdcard.sh` を実行すると、**ハードウェアライトプロテクト（書き込み禁止）** が有効化されたブートローダーが生成されます。
 > * これにより、PC側で誤って `dd` 上書きを実行したり、macOSで誤って「初期化」を押しても、**Pomera 側が書き込みを 100% 拒否するため本体データは一切破損しません**。
-> * ポメラへバックアップを書き戻す（復旧する）時のみ、`--readwrite`（または `--rw`）を指定して SD カードを作成してください。
+> * Pomera へバックアップを書き戻す（復元する）時のみ、`--readwrite`（または `--rw`）を指定して SD カードを作成してください。
 
 ※ 完了すると、`sdcard_images/` フォルダ内に `idbloader.img` と `uboot.img` が生成されます。
 （直接SDカードへ書き込む場合は、`./prepare_sdcard.sh /dev/sdX` や `./prepare_sdcard.sh --rw /dev/rdiskN` と指定することも可能です）
@@ -206,7 +206,7 @@ sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 
 ### 🔄 【応用テクニック】「純正 Pomera」と「カスタムOS（OpenBSD / Linux 等）」の二刀流切り替え
 
-本ツールキットがあれば、Pomera 本体の環境を自由自在に行き来して運用することができます：
+本ツールがあれば、Pomera 本体の環境を自由自在に行き来して運用することができます：
 
 1. **工場出荷状態をバックアップ**:
    ```bash
@@ -227,12 +227,12 @@ sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 
 ---
 
-### ステップ 4-B: 【リストア復旧】バックアップを Pomera に書き戻し (`restore_emmc.sh`)
+### ステップ 4-B: 【リストア復元】バックアップを Pomera に書き戻し (`restore_emmc.sh`)
 
 > [!IMPORTANT]
 > **⚠️ リストア時の注意: Read-Write モードの SD カードが必要です**
 > デフォルトで作成された SD カードは **Read-Only（書き込み禁止）** になっています。
-> リストア（復旧・書き戻し）を行う際は、あらかじめ **`./prepare_sdcard.sh --readwrite`（または `--rw`）** で書き込みを許可した SD カードを作成・挿入して Pomera を起動してください。
+> リストア（復元・書き戻し）を行う際は、あらかじめ **`./prepare_sdcard.sh --readwrite`（または `--rw`）** で書き込みを許可した SD カードを作成・挿入して Pomera を起動してください。
 
 PC側でリストアスクリプトを実行します（※ `<target_device>` には **Linux: `/dev/sdX`**、**macOS: `/dev/rdiskN`** を指定）：
 

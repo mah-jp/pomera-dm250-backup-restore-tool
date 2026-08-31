@@ -1,14 +1,14 @@
-# Pomera DM250 Backup & Recovery Toolkit
+# Pomera DM250 Backup & Restore Tool
 
 [English](README.md) | [日本語](README.ja.md)
 
-A toolkit for the **King Jim Pomera DM250** that enables internal eMMC backups to a PC and system restoration from saved backup images. By booting into **USB Mass Storage (UMS) mode via an SD card**, you can read and write the internal eMMC directly from your PC without hardware disassembly.
+A complete backup and restore tool for the **King Jim Pomera DM250** that enables internal eMMC backups to a PC and system restoration from saved backup images. By booting into **USB Mass Storage (UMS) mode via an SD card**, you can read and write the internal eMMC directly from your PC without hardware disassembly.
 
 * **Supported Host OS**: Linux, macOS
 
 ---
 
-## 💡 How It Works (Why SD Backup and Recovery Work)
+## 💡 How It Works (Why SD Backup and Restore Work)
 
 The **Rockchip RK3128** SoC inside the Pomera DM250 features a hardware BootROM with the following built-in behavior:
 
@@ -66,9 +66,9 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 
 ---
 
-## 🚀 SD Card UMS Backup & Recovery Guide
+## 🚀 SD Card UMS Backup & Restore Guide
 
-### Step 1: Build the Recovery SD Bootloader
+### Step 1: Build the UMS SD Bootloader
 
 Run the following script to automatically compile and generate the U-Boot UMS binaries:
 
@@ -205,7 +205,7 @@ sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 
 ### 🔄 [Advanced Technique] Effortless Dual-Boot Switching (Stock Pomera ⇄ Custom OS)
 
-With this toolkit, you can switch between the factory Pomera firmware and custom OS environments (like OpenBSD or Linux) with complete confidence:
+With this tool, you can switch between the factory Pomera firmware and custom OS environments (like OpenBSD or Linux) with complete confidence:
 
 1. **Backup Factory Firmware**:
    ```bash

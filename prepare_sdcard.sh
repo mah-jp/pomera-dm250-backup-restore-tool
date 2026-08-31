@@ -1,6 +1,6 @@
 #!/bin/bash
 # =====================================================================
-# Pomera DM250 Recovery Tool (SD Card USB Mass Storage Mode Preparation)
+# Pomera DM250 Backup & Restore Tool (SD Card UMS Mode Preparation)
 # Prepares SD card bootloader to automatically export eMMC over USB
 # Cross-Platform Support: Linux & macOS
 # =====================================================================
@@ -100,7 +100,7 @@ if [ "$OS_NAME" = "Darwin" ]; then
 fi
 
 echo "=========================================================="
-echo "  Pomera DM250 Toolkit - SD Card UMS Mode Builder"
+echo "  Pomera DM250 Backup & Restore Tool - SD Card UMS Builder"
 echo "  Host OS: $OS_NAME ($ARCH_NAME) | Parallel jobs: $NPROC"
 echo "=========================================================="
 
@@ -429,7 +429,7 @@ else
     echo "4. Make sure USB-C cable is UNPLUGGED initially."
     echo "5. Turn on Pomera: Press and hold [Power Button] ONLY for 3~4 seconds (until screen turns on)."
     echo "   (Note: To completely turn OFF Pomera at any time, press and hold [Power Button] for 10~11 seconds)"
-    echo "6. Once the screen turns on with recovery banner, connect USB-C cable to PC."
+    echo "6. Once the screen turns on with UMS banner, connect USB-C cable to PC."
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "   🍏 macOS Tip: If an 'unreadable disk' dialog pops up, ALWAYS choose 'Ignore'."
         echo "   🍏 macOS Tip: Execute backup/restore promptly to avoid USB idle auto-disconnect."

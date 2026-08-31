@@ -409,7 +409,7 @@ Source Device   : $EMMC_DEV
 Host Platform   : $OS_NAME ($(uname -m))
 Device Size     : ${DEV_BYTES:-0} bytes (${DEV_GB} GB)
 Dump Mode       : $DUMP_MODE
-Toolkit Version : 2.0 (Pomera Unified Toolkit)
+Tool Version    : 2.0 (Pomera DM250 Backup & Restore Tool)
 
 Partition Layout & Offsets (MB):
 ----------------------------------------
