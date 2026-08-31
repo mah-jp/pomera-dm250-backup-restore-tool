@@ -224,7 +224,6 @@ sudo ./backup_emmc.sh <target_device> ./custom_backup raw
    # 再びカスタムOS環境に戻したい時
    sudo ./restore_emmc.sh <target_device> ./custom_backup
    ```
-*(※ 完全なセーフティネットがあるため、OSの入れ替えや実験を何度でも安全に行えます)*
 
 ---
 

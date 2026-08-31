@@ -223,7 +223,6 @@ With this toolkit, you can switch between the factory Pomera firmware and custom
    # Switch back to Custom OS:
    sudo ./restore_emmc.sh <target_device> ./custom_backup
    ```
-*(You have a 100% full-disk safety net, allowing safe OS experimentation at any time).*
 
 ---
 
