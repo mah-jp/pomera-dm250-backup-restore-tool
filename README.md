@@ -160,10 +160,12 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 > [!IMPORTANT]
 > **🍏 Critical Notes for macOS Users ("Ignore" Dialog & Auto-Suspend Prevention)**
 > 1. **Always select "Ignore" on macOS disk dialog**:
->    * macOS will display a prompt: *"The disk you attached was not readable by this computer."*
+>    * macOS may display a prompt: *"The disk you attached was not readable by this computer."*
 >    * Choose **"Ignore"** (Selecting "Initialize" will overwrite/corrupt Pomera data; selecting "Eject" will disconnect the USB link).
-> 2. **Run the script promptly after connecting**:
->    * Due to macOS power-saving behavior, leaving an unmounted USB device idle for tens of seconds triggers a USB suspend, causing Pomera to display `CTRL+C - Operation aborted` and exit UMS mode.
+> 2. **No need for manual unmounting (automatic in scripts)**:
+>    * If any recognized partitions (e.g., FAT/exFAT) auto-mount onto your macOS desktop, do not waste time unmounting them manually. Both `restore_emmc.sh` and `backup_emmc.sh` automatically unmount all active partitions on the device before executing operations.
+> 3. **Run the script promptly after connecting**:
+>    * Due to macOS power-saving behavior, leaving an idle USB storage device without active transfer for tens of seconds triggers a USB suspend, causing Pomera to display `CTRL+C - Operation aborted` and exit UMS mode.
 >    * Start `backup_emmc.sh` or `restore_emmc.sh` immediately after connecting USB and proceed past the confirmation prompt (`yes`) to initiate data transfer. Active transfer prevents suspension.
 
 6. Confirm that the Pomera internal eMMC (~7.3 GB) is recognized as a block device on your PC:

@@ -66,6 +66,10 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     exit 1
 fi
 
+if [ -n "$EMMC_DEV" ] && [ ! -e "$EMMC_DEV" ] && [ -e "/dev/$EMMC_DEV" ]; then
+    EMMC_DEV="/dev/$EMMC_DEV"
+fi
+
 if [ ! -b "$EMMC_DEV" ] && [ ! -c "$EMMC_DEV" ]; then
     echo "⚠️ Error: '$EMMC_DEV' is not a valid block or character device."
     exit 1
@@ -97,12 +101,15 @@ if [ "$OS_NAME" = "Darwin" ]; then
 else
     DEV_BYTES=$( (blockdev --getsize64 "$EMMC_DEV" 2>/dev/null || lsblk -b -n -o SIZE "$EMMC_DEV" 2>/dev/null | head -n1) || true )
 fi
-DEV_GB=$( ([ -n "$DEV_BYTES" ] && echo "scale=2; $DEV_BYTES / 1024 / 1024 / 1024" | bc 2>/dev/null) || echo "Unknown" )
+DEV_GB="Unknown"
+if [ -n "$DEV_BYTES" ] && [[ "$DEV_BYTES" =~ ^[0-9]+$ ]]; then
+    DEV_GB=$(awk -v b="$DEV_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 / 1024 }' 2>/dev/null || echo "Unknown")
+fi
 
 echo "Target Device: $EMMC_DEV (Size: approx ${DEV_GB} GB / ${DEV_BYTES:-0} bytes)"
 
 # Warn if target is not ~7.3GB - 8.0GB
-if [ -n "$DEV_BYTES" ]; then
+if [ -n "$DEV_BYTES" ] && [[ "$DEV_BYTES" =~ ^[0-9]+$ ]]; then
     if [ "$DEV_BYTES" -gt 10000000000 ] || [ "$DEV_BYTES" -lt 6000000000 ]; then
         echo ""
         echo "🚨 CRITICAL WARNING: Device size (${DEV_GB} GB) does not match expected Pomera eMMC size (~7.3GB / 8GB)!"
@@ -120,6 +127,71 @@ if [ "${CONFIRM:-}" != "yes" ] && [ "${CONFIRM:-}" != "YES" ]; then
     echo "Restoration cancelled by user."
     exit 0
 fi
+
+# Derive disk node for macOS unmounting (/dev/diskN)
+EMMC_DISK_NODE="$EMMC_DEV"
+if [ "$OS_NAME" = "Darwin" ]; then
+    if [[ "$EMMC_DEV" =~ ^/dev/rdisk([0-9]+.*)$ ]]; then
+        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
+    elif [[ "$EMMC_DEV" =~ ^/dev/disk([0-9]+.*)$ ]]; then
+        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
+    elif [[ "$EMMC_DEV" =~ ^rdisk([0-9]+.*)$ ]]; then
+        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
+    elif [[ "$EMMC_DEV" =~ ^disk([0-9]+.*)$ ]]; then
+        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
+    fi
+fi
+
+# Helper to automatically unmount target device volumes (macOS & Linux)
+unmount_target_device() {
+    local dev="$1"
+    if [ "$OS_NAME" = "Darwin" ]; then
+        # Check if disk or any partitions are mounted
+        if diskutil info "$EMMC_DISK_NODE" 2>/dev/null | grep -qi "Mounted: *Yes" || mount | grep -q "^$EMMC_DISK_NODE"; then
+            echo "🔄 Unmounting auto-mounted volumes on $EMMC_DISK_NODE..."
+            diskutil unmountDisk "$EMMC_DISK_NODE" 2>/dev/null || true
+        else
+            diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true
+        fi
+    else
+        # On Linux, unmount any mounted partitions for this block device
+        local mounts
+        mounts=$(lsblk -ln -o MOUNTPOINTS "$dev" 2>/dev/null | grep -v '^$' || true)
+        if [ -n "$mounts" ]; then
+            echo "🔄 Unmounting auto-mounted volumes on $dev..."
+            echo "$mounts" | while read -r mp; do
+                [ -n "$mp" ] && umount "$mp" 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
+# Automatically unmount any active partitions on the target device
+unmount_target_device "$EMMC_DEV"
+
+# Robust dd runner with auto-unmount and retry on Resource Busy (especially on macOS)
+safe_dd_write() {
+    local max_attempts=5
+    local attempt=1
+    while [ "$attempt" -le "$max_attempts" ]; do
+        if [ "$OS_NAME" = "Darwin" ]; then
+            diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true
+        fi
+        if "$@"; then
+            return 0
+        fi
+        if [ "$OS_NAME" = "Darwin" ]; then
+            echo "   ⚠️ Device busy/locked on macOS (attempt $attempt/$max_attempts), releasing locks..."
+            sleep 1
+            diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true
+        else
+            sleep 1
+        fi
+        attempt=$((attempt + 1))
+    done
+    echo "❌ Error: dd write failed after $max_attempts attempts."
+    return 1
+}
 
 # Portable Checksum & Write Helpers
 calc_file_sha256() {
@@ -148,6 +220,9 @@ calc_emmc_hash() {
     local count_blocks=$(( (size_bytes + 1048576 - 1) / 1048576 ))
     (
         set +e +o pipefail 2>/dev/null || true
+        if [ "$OS_NAME" = "Darwin" ]; then
+            diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true
+        fi
         if [ "$offset_mb" -eq 0 ]; then
             dd if="$dev" bs=1M count="$count_blocks" 2>/dev/null | head -c "$size_bytes" | calc_stream_sha256
         else
@@ -177,9 +252,9 @@ chunk_write_with_progress() {
         local target_seek_mb=$((base_offset_mb + offset_in_file))
         
         if [ "$OS_NAME" = "Darwin" ]; then
-            dd if="$in_file" of="$out_dev" bs=1M skip="$offset_in_file" seek="$target_seek_mb" count="$count_mb" conv=notrunc status=none
+            safe_dd_write dd if="$in_file" of="$out_dev" bs=1M skip="$offset_in_file" seek="$target_seek_mb" count="$count_mb" conv=notrunc status=none
         else
-            dd if="$in_file" of="$out_dev" bs=1M skip="$offset_in_file" seek="$target_seek_mb" count="$count_mb" conv=fdatasync,notrunc status=none
+            safe_dd_write dd if="$in_file" of="$out_dev" bs=1M skip="$offset_in_file" seek="$target_seek_mb" count="$count_mb" conv=fdatasync,notrunc status=none
         fi
         
         local written_mb=$((offset_in_file + count_mb))
@@ -203,7 +278,6 @@ chunk_write_with_progress() {
         printf "\r   Progress: [ %d / %d MB ] (%d%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%s" \
             "$written_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str"
     done
-    sync
     echo ""
 }
 
@@ -221,18 +295,17 @@ portable_write() {
     else
         if [ "$base_seek_mb" -gt 0 ]; then
             if [ "$OS_NAME" = "Darwin" ]; then
-                dd if="$in_file" of="$out_dev" bs="$bs" seek="$base_seek_mb" conv=notrunc status=none
+                safe_dd_write dd if="$in_file" of="$out_dev" bs="$bs" seek="$base_seek_mb" conv=notrunc status=none
             else
-                dd if="$in_file" of="$out_dev" bs="$bs" seek="$base_seek_mb" conv=fdatasync,notrunc status=none
+                safe_dd_write dd if="$in_file" of="$out_dev" bs="$bs" seek="$base_seek_mb" conv=fdatasync,notrunc status=none
             fi
         else
             if [ "$OS_NAME" = "Darwin" ]; then
-                dd if="$in_file" of="$out_dev" bs="$bs" conv=notrunc status=none
+                safe_dd_write dd if="$in_file" of="$out_dev" bs="$bs" conv=notrunc status=none
             else
-                dd if="$in_file" of="$out_dev" bs="$bs" conv=fdatasync,notrunc status=none
+                safe_dd_write dd if="$in_file" of="$out_dev" bs="$bs" conv=fdatasync,notrunc status=none
             fi
         fi
-        sync
     fi
 }
 
@@ -305,16 +378,15 @@ if [ -f "$IMG_DIR/dm250-idb.img" ]; then
     echo ""
     echo "➡️ Restoring IDB (Image Definition Block) to sector 0..."
     if [ "$OS_NAME" = "Darwin" ]; then
-        dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=notrunc status=none
+        safe_dd_write dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=notrunc status=none
     else
-        dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=fdatasync,notrunc status=none
+        safe_dd_write dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=fdatasync,notrunc status=none
     fi
-    sync
     echo ""
     
     echo -n "🔍 Verifying dm250-idb.img... "
     ORIG_HASH=$(calc_file_sha256 "$IMG_DIR/dm250-idb.img")
-    EMMC_HASH=$( (set +e +o pipefail 2>/dev/null || true; dd if="$EMMC_DEV" bs=512 count=8192 2>/dev/null | calc_stream_sha256) )
+    EMMC_HASH=$( (set +e +o pipefail 2>/dev/null || true; [ "$OS_NAME" = "Darwin" ] && diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true; dd if="$EMMC_DEV" bs=512 count=8192 2>/dev/null | calc_stream_sha256) )
     if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
         echo "✅ OK"
     else

@@ -396,7 +396,7 @@ if [ -z "$TARGET_SD_DEV" ]; then
 fi
 
 if [ -n "$TARGET_SD_DEV" ]; then
-    if [ "$OS_NAME" = "Darwin" ] && [[ "$TARGET_SD_DEV" =~ ^disk[0-9]+ ]]; then
+    if [ ! -e "$TARGET_SD_DEV" ] && [ -e "/dev/$TARGET_SD_DEV" ]; then
         TARGET_SD_DEV="/dev/$TARGET_SD_DEV"
     fi
     if [ ! -b "$TARGET_SD_DEV" ] && [ ! -c "$TARGET_SD_DEV" ]; then

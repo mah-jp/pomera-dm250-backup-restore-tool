@@ -84,6 +84,10 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     exit 1
 fi
 
+if [ -n "$EMMC_DEV" ] && [ ! -e "$EMMC_DEV" ] && [ -e "/dev/$EMMC_DEV" ]; then
+    EMMC_DEV="/dev/$EMMC_DEV"
+fi
+
 if [ ! -b "$EMMC_DEV" ] && [ ! -c "$EMMC_DEV" ]; then
     echo "⚠️ Error: '$EMMC_DEV' is not a valid block or character device."
     exit 1
@@ -125,12 +129,15 @@ if [ "$OS_NAME" = "Darwin" ]; then
 else
     DEV_BYTES=$( (blockdev --getsize64 "$EMMC_DEV" 2>/dev/null || lsblk -b -n -o SIZE "$EMMC_DEV" 2>/dev/null | head -n1) || true )
 fi
-DEV_GB=$( ([ -n "$DEV_BYTES" ] && echo "scale=2; $DEV_BYTES / 1024 / 1024 / 1024" | bc 2>/dev/null) || echo "Unknown" )
+DEV_GB="Unknown"
+if [ -n "$DEV_BYTES" ] && [[ "$DEV_BYTES" =~ ^[0-9]+$ ]]; then
+    DEV_GB=$(awk -v b="$DEV_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 / 1024 }' 2>/dev/null || echo "Unknown")
+fi
 
 echo "Target Device: $EMMC_DEV (Size: approx ${DEV_GB} GB / ${DEV_BYTES:-0} bytes)"
 
 # Warn if target is not ~7.3GB - 8.0GB
-if [ -n "$DEV_BYTES" ]; then
+if [ -n "$DEV_BYTES" ] && [[ "$DEV_BYTES" =~ ^[0-9]+$ ]]; then
     if [ "$DEV_BYTES" -gt 10000000000 ] || [ "$DEV_BYTES" -lt 6000000000 ]; then
         echo ""
         echo "🚨 WARNING: Target device size (${DEV_GB} GB) does not match expected Pomera eMMC size (~7.3GB / 8GB)!"
@@ -142,11 +149,14 @@ fi
 # Disk space check on PC
 AVAIL_BYTES=""
 if [ "$OS_NAME" = "Darwin" ]; then
-    AVAIL_BYTES=$(df -k "$OUT_DIR_ABS" | awk 'NR==2 {print $4 * 1024}')
+    AVAIL_BYTES=$(df -P -k "$OUT_DIR_ABS" | awk 'NR==2 {print $4 * 1024}')
 else
-    AVAIL_BYTES=$(df -B1 "$OUT_DIR_ABS" | awk 'NR==2 {print $4}')
+    AVAIL_BYTES=$(df -P -B1 "$OUT_DIR_ABS" | awk 'NR==2 {print $4}')
 fi
-AVAIL_GB=$(echo "scale=2; $AVAIL_BYTES / 1024 / 1024 / 1024" | bc 2>/dev/null || echo "Unknown")
+AVAIL_GB="Unknown"
+if [ -n "$AVAIL_BYTES" ] && [[ "$AVAIL_BYTES" =~ ^[0-9]+$ ]]; then
+    AVAIL_GB=$(awk -v b="$AVAIL_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 / 1024 }' 2>/dev/null || echo "Unknown")
+fi
 REQ_BYTES=8589934592 # ~8GB
 if [ "$DUMP_MODE" = "both" ]; then
     REQ_BYTES=17179869184 # ~16GB
@@ -154,7 +164,7 @@ fi
 
 echo "Available Disk Space on PC: ${AVAIL_GB} GB"
 
-if [ -n "$AVAIL_BYTES" ] && [ "$AVAIL_BYTES" -lt "$REQ_BYTES" ]; then
+if [ -n "$AVAIL_BYTES" ] && [[ "$AVAIL_BYTES" =~ ^[0-9]+$ ]] && [ "$AVAIL_BYTES" -lt "$REQ_BYTES" ]; then
     echo "⚠️ Warning: Low disk space on destination filesystem (${AVAIL_GB} GB available)."
     if [ "$AVAIL_BYTES" -lt 8000000000 ]; then
         echo "❌ Error: At least 8GB of free space is required to dump Pomera eMMC."
@@ -170,6 +180,44 @@ if [ "${CONFIRM:-}" = "n" ] || [ "${CONFIRM:-}" = "N" ]; then
     echo "Backup cancelled by user."
     exit 0
 fi
+
+# Helper to automatically unmount target device volumes (macOS & Linux)
+unmount_target_device() {
+    local dev="$1"
+    if [ "$OS_NAME" = "Darwin" ]; then
+        local disk_node="$dev"
+        if [[ "$dev" =~ ^/dev/rdisk([0-9]+.*)$ ]]; then
+            disk_node="/dev/disk${BASH_REMATCH[1]}"
+        elif [[ "$dev" =~ ^/dev/disk([0-9]+.*)$ ]]; then
+            disk_node="/dev/disk${BASH_REMATCH[1]}"
+        elif [[ "$dev" =~ ^rdisk([0-9]+.*)$ ]]; then
+            disk_node="/dev/disk${BASH_REMATCH[1]}"
+        elif [[ "$dev" =~ ^disk([0-9]+.*)$ ]]; then
+            disk_node="/dev/disk${BASH_REMATCH[1]}"
+        fi
+        
+        # Check if disk or any partitions are mounted
+        if diskutil info "$disk_node" 2>/dev/null | grep -qi "Mounted: *Yes" || mount | grep -q "^$disk_node"; then
+            echo "🔄 Unmounting auto-mounted volumes on $disk_node..."
+            diskutil unmountDisk "$disk_node" 2>/dev/null || true
+        else
+            diskutil unmountDisk "$disk_node" >/dev/null 2>&1 || true
+        fi
+    else
+        # On Linux, unmount any mounted partitions for this block device
+        local mounts
+        mounts=$(lsblk -ln -o MOUNTPOINTS "$dev" 2>/dev/null | grep -v '^$' || true)
+        if [ -n "$mounts" ]; then
+            echo "🔄 Unmounting auto-mounted volumes on $dev..."
+            echo "$mounts" | while read -r mp; do
+                [ -n "$mp" ] && umount "$mp" 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
+# Automatically unmount any active partitions on the target device
+unmount_target_device "$EMMC_DEV"
 
 START_TIME=$(date +%s)
 
@@ -378,25 +426,29 @@ done
 for f in *.img; do
     if [ -f "$f" ]; then
         already_added=0
-        for existing in "${HASH_FILES[@]}"; do
-            if [ "$f" = "$existing" ]; then
-                already_added=1
-                break
-            fi
-        done
+        if [ ${#HASH_FILES[@]} -gt 0 ]; then
+            for existing in "${HASH_FILES[@]}"; do
+                if [ "$f" = "$existing" ]; then
+                    already_added=1
+                    break
+                fi
+            done
+        fi
         [ "$already_added" -eq 0 ] && HASH_FILES+=("$f")
     fi
 done
 
-for img in "${HASH_FILES[@]}"; do
-    echo -n "   Hashing $img... "
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$img" >> sha256sum.txt
-    else
-        shasum -a 256 "$img" >> sha256sum.txt
-    fi
-    echo "✅"
-done
+if [ ${#HASH_FILES[@]} -gt 0 ]; then
+    for img in "${HASH_FILES[@]}"; do
+        echo -n "   Hashing $img... "
+        if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$img" >> sha256sum.txt
+        else
+            shasum -a 256 "$img" >> sha256sum.txt
+        fi
+        echo "✅"
+    done
+fi
 
 # Step 4: Metadata Logging
 echo ""
