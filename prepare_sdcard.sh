@@ -16,7 +16,7 @@ show_help() {
     echo "Usage: $0 [options] [/dev/sdX | /dev/rdiskN]"
     echo ""
     echo "Options:"
-    echo "  --readonly, --ro, -r   Build READ-ONLY bootloader (Default: 100% write-protected for safe backup)"
+    echo "  --readonly, --ro, -r   Build READ-ONLY bootloader (Default: write-protected for safe backup)"
     echo "  --readwrite, --rw, -w  Build READ-WRITE bootloader (Allows restore/flashing eMMC back to Pomera)"
     echo "  --help, -h             Show this help message"
     echo ""
@@ -214,32 +214,52 @@ WORK_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'pomera_sdcard_build' || echo "
 mkdir -p "$WORK_DIR"
 trap 'rm -rf "$WORK_DIR"' EXIT INT TERM
 
-# Step 2: Compile Device Tree Blob (pomera-dm250.dtb)
-echo "=== Step 2: Compiling Device Tree Blob (pomera-dm250.dtb) ==="
-cd "$WORK_DIR"
-echo "Cloning linux-dm250 repository (shallow depth=1)..."
-git clone -b master --depth=1 https://github.com/jcs/linux-dm250.git
-cd linux-dm250
-eval $MAKE_CMD ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" multi_v7_defconfig
-eval $MAKE_CMD ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$NPROC" rockchip/pomera-dm250.dtb
-cp arch/arm/boot/dts/rockchip/pomera-dm250.dtb "$WORK_DIR/pomera-dm250.dtb"
-cd "$WORK_DIR"
-rm -rf linux-dm250
-
-# Step 3: Clone and compile U-Boot
-echo "=== Step 3: Cloning and Compiling U-Boot with UMS support ==="
+# Step 2: Download U-Boot source tree
+echo "=== Step 2: Downloading U-Boot source archive (pomera-dm250 branch) ==="
 if [ "$BUILD_MODE" = "ro" ]; then
-    echo "🔒 Target Mode: READ-ONLY (Safe mode, 100% write-protected against accidental overwrites)"
+    echo "🔒 Target Mode: READ-ONLY (Safe mode, write-protected against accidental overwrites)"
 else
     echo "✏️ Target Mode: READ-WRITE (Required for restore/flashing eMMC back to Pomera)"
 fi
 cd "$WORK_DIR"
-echo "Cloning U-Boot repository (pomera-dm250 branch, shallow depth=1)..."
-git clone -b pomera-dm250 --depth=1 https://github.com/jcs/u-boot.git
-cd u-boot
+mkdir -p u-boot
+echo "Downloading and extracting U-Boot source archive (~25MB)..."
+curl -sSL --retry 3 https://github.com/jcs/u-boot/archive/refs/heads/pomera-dm250.tar.gz | tar -xz -C u-boot --strip-components=1
+
+# Step 3: Fetch DTS sources and compile Device Tree Blob (pomera-dm250.dtb)
+echo "=== Step 3: Downloading DTS sources and Compiling Device Tree Blob ==="
+DTS_DIR="$WORK_DIR/dts"
+mkdir -p "$DTS_DIR"
+DTS_BASE_URL="https://raw.githubusercontent.com/jcs/linux-dm250/master/arch/arm/boot/dts/rockchip"
+DTS_FILES=(
+    "pomera-dm250.dts"
+    "pomera-dm250-kbd.dtsi"
+    "pomera-dm250-lcd.dtsi"
+    "pomera-dm250-led.dtsi"
+    "pomera-dm250-mmc.dtsi"
+    "pomera-dm250-power.dtsi"
+    "pomera-dm250-usb.dtsi"
+    "pomera-dm250-wifi.dtsi"
+    "rk3128.dtsi"
+)
+
+echo "Fetching Pomera DM250 device tree source files (~56KB)..."
+for f in "${DTS_FILES[@]}"; do
+    curl -sSL --retry 3 -f "$DTS_BASE_URL/$f" -o "$DTS_DIR/$f"
+done
+
+echo "Compiling Device Tree Blob (pomera-dm250.dtb) using local dtc..."
+${CROSS_COMPILE}gcc -E -P -x assembler-with-cpp -nostdinc \
+    -I "$WORK_DIR/u-boot/include" \
+    -I "$WORK_DIR/u-boot/dts/upstream/include" \
+    -I "$DTS_DIR" \
+    -undef -D__DTS__ "$DTS_DIR/pomera-dm250.dts" -o "$WORK_DIR/pomera-dm250.dts.preprocessed"
+
+dtc -I dts -O dtb -o "$WORK_DIR/pomera-dm250.dtb" "$WORK_DIR/pomera-dm250.dts.preprocessed"
 
 # Copy the compiled DTB to U-Boot dts directory
-cp "$WORK_DIR/pomera-dm250.dtb" dts/upstream/src/arm/rockchip/pomera-dm250.dtb
+cp "$WORK_DIR/pomera-dm250.dtb" "$WORK_DIR/u-boot/dts/upstream/src/arm/rockchip/pomera-dm250.dtb"
+cd "$WORK_DIR/u-boot"
 
 # Patch U-Boot defconfig and gadget driver:
 portable_sed '/CONFIG_SILENT_CONSOLE/d' configs/pomera-dm250_defconfig
@@ -257,7 +277,7 @@ if [ "$BUILD_MODE" = "ro" ]; then
         echo "Applying U-Boot Read-Only UMS patch (Hardware Write-Protect)..."
         patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_ums_readonly.patch" || true
     fi
-    BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-ONLY); echo   eMMC is mounted as READ-ONLY USB drive to PC.; echo   Write operations are 100% BLOCKED.; echo   Run backup_emmc.sh to backup to PC.; echo =================================================; echo; ums 0 mmc 0"
+    BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-ONLY); echo   eMMC is mounted as READ-ONLY USB drive to PC.; echo   Write operations are blocked.; echo   Run backup_emmc.sh to backup to PC.; echo =================================================; echo; ums 0 mmc 0"
 else
     if [ -f "$SCRIPT_DIR/patches/uboot_ums_readwrite.patch" ]; then
         echo "Applying U-Boot Read-Write UMS patch..."
@@ -321,7 +341,7 @@ fi
 echo "=========================================================="
 if [ "$BUILD_MODE" = "ro" ]; then
     echo "🎉 SD Card Bootloader Ready in: ./sdcard_images/ [READ-ONLY Safe Mode]"
-    echo "   - Status        : 100% Write-Protected (Backup Only)"
+    echo "   - Status        : Write-Protected (Backup Only)"
 else
     echo "🎉 SD Card Bootloader Ready in: ./sdcard_images/ [READ-WRITE Mode]"
     echo "   - Status        : Write-Enabled (Allows Flashing/Restore)"
@@ -350,22 +370,39 @@ flash_to_sd() {
     fi
 
     echo "Writing directly to SD card device: $raw_target"
-    read -p "Are you sure you want to write to $raw_target? (y/N): " CONFIRM_FLASH
-    if [ "${CONFIRM_FLASH:-}" = "y" ] || [ "${CONFIRM_FLASH:-}" = "Y" ]; then
+    read -p "Are you sure you want to write to $raw_target? (yes/N): " CONFIRM_FLASH
+    if [ "${CONFIRM_FLASH:-}" = "yes" ] || [ "${CONFIRM_FLASH:-}" = "YES" ]; then
+        local flash_ok=1
         if [ "$OS_NAME" = "Darwin" ]; then
             # macOS dd (bs=512 and re-unmount to prevent diskarbitrationd locks)
             diskutil unmountDisk "$target" 2>/dev/null || true
-            sudo dd if="$SD_DIR/idbloader.img" of="$raw_target" bs=512 seek=64
+            sudo dd if="$SD_DIR/idbloader.img" of="$raw_target" bs=512 seek=64 || flash_ok=0
             diskutil unmountDisk "$target" 2>/dev/null || true
-            sudo dd if="$SD_DIR/uboot.img" of="$raw_target" bs=512 seek=16384
+            sudo dd if="$SD_DIR/uboot.img" of="$raw_target" bs=512 seek=16384 || flash_ok=0
             sync
         else
             # Linux dd
-            sudo dd if="$SD_DIR/idbloader.img" of="$raw_target" bs=512 seek=64 conv=fdatasync
-            sudo dd if="$SD_DIR/uboot.img" of="$raw_target" bs=512 seek=16384 conv=fdatasync
+            sudo dd if="$SD_DIR/idbloader.img" of="$raw_target" bs=512 seek=64 conv=fdatasync || flash_ok=0
+            sudo dd if="$SD_DIR/uboot.img" of="$raw_target" bs=512 seek=16384 conv=fdatasync || flash_ok=0
             sync
         fi
-        echo "✅ Flashed successfully to $raw_target!"
+
+        if [ "$flash_ok" -eq 1 ]; then
+            echo "✅ Flashed successfully to $raw_target!"
+        else
+            echo ""
+            echo "❌ Error: Failed to write bootloader to SD card ($raw_target)."
+            echo "   Possible causes & remedies:"
+            echo "   1. Physical Lock : Check if the write-protect switch on your SD card / adapter is LOCKED."
+            echo "   2. Permissions   : Ensure you have sudo privileges and entered your password correctly."
+            if [ "$OS_NAME" = "Darwin" ]; then
+                echo "   3. Full Disk Access: On macOS, your terminal app (Terminal / iTerm2) may require"
+                echo "      'Full Disk Access' granted in System Settings -> Privacy & Security."
+            fi
+            exit 1
+        fi
+    else
+        echo "⚠️ Flashing cancelled."
     fi
 }
 

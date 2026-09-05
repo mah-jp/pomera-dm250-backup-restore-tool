@@ -74,7 +74,7 @@ Run the following script to automatically compile and generate the U-Boot UMS bi
 
 ```bash
 # [Default: Safe READ-ONLY Mode (Recommended for Backup)]
-# 100% write-protected against accidental PC overwrites.
+# Write-protected against accidental PC overwrites.
 ./prepare_sdcard.sh
 
 # [READ-WRITE Mode (Required ONLY when restoring/flashing Pomera)]
@@ -84,7 +84,7 @@ Run the following script to automatically compile and generate the U-Boot UMS bi
 > [!TIP]
 > **🛡️ Safety-First Read-Only Default Specification**
 > * Running `./prepare_sdcard.sh` without options builds a **hardware write-protected** bootloader.
-> * Even if you accidentally run `dd` to the Pomera disk or click "Initialize" on macOS, **the Pomera firmware blocks all writes 100%, keeping your device data completely safe**.
+> * Even if you accidentally run `dd` to the Pomera disk or click "Initialize" on macOS, **the Pomera firmware blocks all writes, keeping your device data completely safe**.
 > * When you need to flash/restore backup images back to Pomera, build the SD card with `--readwrite` (or `--rw`).
 
 * Upon completion, `idbloader.img` and `uboot.img` will be generated inside the `sdcard_images/` directory.
@@ -144,7 +144,7 @@ sync
   [Pomera DM250 PC Storage Mount]
   USB Mass Storage Mode Active (READ-ONLY)
   eMMC is mounted as READ-ONLY USB drive to PC.
-  Write operations are 100% BLOCKED.
+  Write operations are blocked.
   Run backup_emmc.sh to backup to PC.
 =================================================
 
@@ -176,7 +176,7 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 
 ### Step 4-A: [Backup] Dump Pomera eMMC to PC (`backup_emmc.sh`)
 
-Performs a read-only (100% safe) dump of the entire internal eMMC to your PC.
+Performs a read-only (safe) dump of the entire internal eMMC to your PC.
 *(Replace `<target_device>` with your Pomera device identifier: **Linux: `/dev/sdX`**, **macOS: `/dev/rdiskN`**)*:
 
 ```bash
@@ -252,7 +252,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 > [!TIP]
 > **⏱️ Real-time Progress & Verification**
 > * **Progress Bar & Real-time ETA**: Dynamically calculates and displays remaining time during both write and verify operations.
-> * **100% Safe Verification**: Reads back each partition immediately after write to verify SHA256 checksums match perfectly.
+> * **Safe Verification**: Reads back each partition immediately after write to verify SHA256 checksums match perfectly.
 
 ---
 

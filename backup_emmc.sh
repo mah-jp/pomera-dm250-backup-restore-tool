@@ -81,6 +81,9 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     fi
     echo ""
     show_block_devices
+    if [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; then
+        exit 0
+    fi
     exit 1
 fi
 

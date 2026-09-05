@@ -63,6 +63,9 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     fi
     echo ""
     show_block_devices
+    if [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; then
+        exit 0
+    fi
     exit 1
 fi
 
@@ -517,7 +520,7 @@ elif [ "$VERIFY_ERRORS" -gt 0 ]; then
     exit 1
 else
     echo "🎉 Restoration and Checksum Verification completed successfully!"
-    echo "All $RESTORED_COUNT partition(s) were written and verified with 100% SHA256 match."
+    echo "All $RESTORED_COUNT partition(s) were written and verified with valid SHA256 checksums."
     echo "You can now safely disconnect the USB cable and reboot your Pomera!"
 fi
 echo "=========================================================="

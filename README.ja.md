@@ -74,7 +74,7 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 
 ```bash
 # 【デフォルト: 安全な Read-Only モード（バックアップ推奨）】
-# PCからの誤書き込み・上書きを 100% 物理ブロックする安全モードです。
+# PCからの誤書き込み・上書きを物理ブロックする安全モードです。
 ./prepare_sdcard.sh
 
 # 【書き込み許可: Read-Write モード（リストア・復元時のみ使用）】
@@ -85,7 +85,7 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 > [!TIP]
 > **🛡️ 安全第一の Read-Only（読み取り専用）デフォルト仕様**
 > * 通常の `./prepare_sdcard.sh` を実行すると、**ハードウェアライトプロテクト（書き込み禁止）** が有効化されたブートローダーが生成されます。
-> * これにより、PC側で誤って `dd` 上書きを実行したり、macOSで誤って「初期化」を押しても、**Pomera 側が書き込みを 100% 拒否するため本体データは一切破損しません**。
+> * これにより、PC側で誤って `dd` 上書きを実行したり、macOSで誤って「初期化」を押しても、**Pomera 側が書き込みをブロックするため本体データは一切破損しません**。
 > * Pomera へバックアップを書き戻す（復元する）時のみ、`--readwrite`（または `--rw`）を指定して SD カードを作成してください。
 
 ※ 完了すると、`sdcard_images/` フォルダ内に `idbloader.img` と `uboot.img` が生成されます。
@@ -145,7 +145,7 @@ sync
   [Pomera DM250 PC Storage Mount]
   USB Mass Storage Mode Active (READ-ONLY)
   eMMC is mounted as READ-ONLY USB drive to PC.
-  Write operations are 100% BLOCKED.
+  Write operations are blocked.
   Run backup_emmc.sh to backup to PC.
 =================================================
 
@@ -253,7 +253,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 > [!TIP]
 > **⏱️ リストア時のリアルタイム進捗と検証**
 > * **プログレス表示 & ETA 予測**: 書き込み速度およびベリファイ速度から、完了までの残り予測時間をリアルタイム表示。
-> * **100% 安全なベリファイ**: 各パーティション書き込み直後に SHA256 ハッシュを自動照合し、整合性を完全に保証。
+> * **安全なベリファイ**: 各パーティション書き込み直後に SHA256 ハッシュを自動照合し、整合性を完全に保証。
 
 ---
 
