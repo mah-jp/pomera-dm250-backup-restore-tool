@@ -264,6 +264,17 @@ elif [ -f "$IMG_DIR/mmcblk0.img" ]; then
 fi
 
 if [ -n "$FULL_IMG" ]; then
+    IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null || echo 0)
+    # Check if full raw image is reasonably complete (at least ~6.5GB / 6500000000 bytes)
+    if [ "$IMG_SIZE" -lt 6500000000 ]; then
+        echo ""
+        echo "⚠️ Warning: Found $FULL_IMG, but its size (${IMG_SIZE} bytes / $((IMG_SIZE / 1048576)) MB) is too small to be a complete eMMC raw image (expected ~7.3GB)."
+        echo "   Skipping incomplete $FULL_IMG to prevent corrupting target device."
+        FULL_IMG=""
+    fi
+fi
+
+if [ -n "$FULL_IMG" ]; then
     echo ""
     echo "➡️ Found full raw eMMC image: $FULL_IMG"
     IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null)
@@ -323,25 +334,30 @@ fi
 
 # Restore IDB image if present
 if [ -f "$IMG_DIR/dm250-idb.img" ]; then
-    echo ""
-    echo "➡️ Restoring IDB (Image Definition Block) to sector 0..."
-    if [ "$OS_NAME" = "Darwin" ]; then
-        safe_dd_write dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=notrunc status=none
+    idb_bytes=$(stat -f%z "$IMG_DIR/dm250-idb.img" 2>/dev/null || stat -c%s "$IMG_DIR/dm250-idb.img" 2>/dev/null || echo 0)
+    if [ "$idb_bytes" -eq 0 ]; then
+        echo "⚠️ Warning: Skipping 0-byte file: dm250-idb.img"
     else
-        safe_dd_write dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=fdatasync,notrunc status=none
+        echo ""
+        echo "➡️ Restoring IDB (Image Definition Block) to sector 0..."
+        if [ "$OS_NAME" = "Darwin" ]; then
+            safe_dd_write dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=notrunc status=none
+        else
+            safe_dd_write dd if="$IMG_DIR/dm250-idb.img" of="$EMMC_DEV" bs=512 count=8192 conv=fdatasync,notrunc status=none
+        fi
+        echo ""
+        
+        echo -n "🔍 Verifying dm250-idb.img... "
+        ORIG_HASH=$(calc_file_sha256 "$IMG_DIR/dm250-idb.img")
+        EMMC_HASH=$( (set +e +o pipefail 2>/dev/null || true; [ "$OS_NAME" = "Darwin" ] && diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true; dd if="$EMMC_DEV" bs=512 count=8192 2>/dev/null | calc_stream_sha256) )
+        if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
+            echo "✅ OK"
+        else
+            echo "❌ CHECKSUM MISMATCH!"
+            VERIFY_ERRORS=$((VERIFY_ERRORS + 1))
+        fi
+        RESTORED_COUNT=$((RESTORED_COUNT + 1))
     fi
-    echo ""
-    
-    echo -n "🔍 Verifying dm250-idb.img... "
-    ORIG_HASH=$(calc_file_sha256 "$IMG_DIR/dm250-idb.img")
-    EMMC_HASH=$( (set +e +o pipefail 2>/dev/null || true; [ "$OS_NAME" = "Darwin" ] && diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true; dd if="$EMMC_DEV" bs=512 count=8192 2>/dev/null | calc_stream_sha256) )
-    if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
-        echo "✅ OK"
-    else
-        echo "❌ CHECKSUM MISMATCH!"
-        VERIFY_ERRORS=$((VERIFY_ERRORS + 1))
-    fi
-    RESTORED_COUNT=$((RESTORED_COUNT + 1))
 fi
 
 # Calculate total size of all existing partition files for overall progress
@@ -366,6 +382,10 @@ for i in $(seq 1 27); do
         offset=$(get_part_offset "$filename")
         if [ -n "$offset" ]; then
             p_bytes=$(stat -f%z "$img_path" 2>/dev/null || stat -c%s "$img_path" 2>/dev/null || echo 0)
+            if [ "$p_bytes" -eq 0 ]; then
+                echo "⚠️ Warning: Skipping 0-byte file: $filename"
+                continue
+            fi
             p_mb=$((p_bytes / 1048576))
             
             echo ""

@@ -91,8 +91,19 @@ fi
 mkdir -p "$OUT_DIR"
 OUT_DIR_ABS="$(cd "$OUT_DIR" && pwd)"
 
-# Ensure output directory belongs to real user (not root)
-trap 'fix_file_ownership "$OUT_DIR_ABS"' EXIT INT TERM
+# Ensure output directory belongs to real user (not root) and handle interrupts cleanly
+CURRENT_DD_PID=""
+cleanup_on_interrupt() {
+    echo ""
+    echo "⚠️ Backup interrupted / cancelled by user."
+    if [ -n "$CURRENT_DD_PID" ] && kill -0 "$CURRENT_DD_PID" 2>/dev/null; then
+        kill -TERM "$CURRENT_DD_PID" 2>/dev/null || true
+    fi
+    fix_file_ownership "$OUT_DIR_ABS"
+    exit 130
+}
+trap 'cleanup_on_interrupt' INT TERM
+trap 'fix_file_ownership "$OUT_DIR_ABS"' EXIT
 fix_file_ownership "$OUT_DIR_ABS"
 
 echo "Destination Directory: $OUT_DIR_ABS"
@@ -212,12 +223,19 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "raw" ]; then
     STEP1_START=$(date +%s)
     dd if="$EMMC_DEV" of="$FULL_IMG" bs=4M status=none &
     DD_PID=$!
+    CURRENT_DD_PID=$DD_PID
     
     TARGET_TOTAL_BYTES="${DEV_BYTES:-7818182656}"
     monitor_dump_progress "$DD_PID" "$FULL_IMG" "$TARGET_TOTAL_BYTES" "$STEP1_START"
+    CURRENT_DD_PID=""
     
     sync
-    IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null || echo "7.3GB")
+    IMG_SIZE=$(stat -c%s "$FULL_IMG" 2>/dev/null || stat -f%z "$FULL_IMG" 2>/dev/null || echo 0)
+    if [ "$IMG_SIZE" -lt "$TARGET_TOTAL_BYTES" ]; then
+        echo "❌ Error: emmc.img dump incomplete ($IMG_SIZE bytes < expected $TARGET_TOTAL_BYTES bytes)!"
+        echo "   Please check disk space and Pomera USB connection."
+        exit 1
+    fi
     echo "✅ Full raw image dump completed: $FULL_IMG ($IMG_SIZE bytes)"
 fi
 
@@ -227,9 +245,16 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
     echo "➡️ [Step 2] Extracting IDB and separate partition images (mmcblk0p1 ~ mmcblk0p27)..."
 
     SRC_INPUT="$EMMC_DEV"
+    TARGET_TOTAL_BYTES="${DEV_BYTES:-7818182656}"
     if [ -f "$OUT_DIR_ABS/emmc.img" ]; then
-        SRC_INPUT="$OUT_DIR_ABS/emmc.img"
-        echo "⚡ Extracting partitions from local emmc.img for maximum speed..."
+        LOCAL_EMMC_BYTES=$(stat -c%s "$OUT_DIR_ABS/emmc.img" 2>/dev/null || stat -f%z "$OUT_DIR_ABS/emmc.img" 2>/dev/null || echo 0)
+        if [ "$LOCAL_EMMC_BYTES" -ge "$TARGET_TOTAL_BYTES" ]; then
+            SRC_INPUT="$OUT_DIR_ABS/emmc.img"
+            echo "⚡ Complete emmc.img found ($((LOCAL_EMMC_BYTES / 1048576)) MB). Extracting partitions from local file for maximum speed..."
+        else
+            echo "⚠️ Notice: Local emmc.img is incomplete ($((LOCAL_EMMC_BYTES / 1048576)) MB / expected $((TARGET_TOTAL_BYTES / 1048576)) MB)."
+            echo "   Reading partitions directly from Pomera device $EMMC_DEV instead..."
+        fi
     else
         echo "Reading partitions directly from device $EMMC_DEV..."
     fi
@@ -237,6 +262,12 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
     # Extract IDB (First 4MB / 8192 sectors)
     echo -n "   [IDB] Extracting dm250-idb.img (4MB)... "
     dd if="$SRC_INPUT" of="$OUT_DIR_ABS/dm250-idb.img" bs=512 count=8192 status=none
+    idb_sz=$(stat -c%s "$OUT_DIR_ABS/dm250-idb.img" 2>/dev/null || stat -f%z "$OUT_DIR_ABS/dm250-idb.img" 2>/dev/null || echo 0)
+    if [ "$idb_sz" -eq 0 ]; then
+        echo "❌ FAILED (0 bytes)"
+        echo "❌ Error: Failed to extract dm250-idb.img from $SRC_INPUT."
+        exit 1
+    fi
     echo "✅ Done"
 
     # Extract partitions 1 through 27
@@ -254,7 +285,9 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
                     part_start=$(date +%s)
                     dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" status=none &
                     part_pid=$!
+                    CURRENT_DD_PID=$part_pid
                     monitor_dump_progress "$part_pid" "$out_file" "$((size * 1048576))" "$part_start"
+                    CURRENT_DD_PID=""
                 else
                     dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" status=none
                     echo "✅ Done"
@@ -266,12 +299,22 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
                     part_start=$(date +%s)
                     dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" status=none &
                     part_pid=$!
+                    CURRENT_DD_PID=$part_pid
                     rem_est_bytes=657457152 # ~627MB remainder
                     monitor_dump_progress "$part_pid" "$out_file" "$rem_est_bytes" "$part_start"
+                    CURRENT_DD_PID=""
                 else
                     dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" status=none
                     echo "✅ Done"
                 fi
+            fi
+
+            out_sz=$(stat -c%s "$out_file" 2>/dev/null || stat -f%z "$out_file" 2>/dev/null || echo 0)
+            if [ "$out_sz" -eq 0 ]; then
+                echo ""
+                echo "❌ Error: Extracted file $filename is 0 bytes! (Source: $SRC_INPUT at offset ${offset}MB)"
+                echo "   If reading from $EMMC_DEV, verify that Pomera is connected and UMS mode is still active."
+                exit 1
             fi
         fi
     done
@@ -311,6 +354,11 @@ done
 
 if [ ${#HASH_FILES[@]} -gt 0 ]; then
     for img in "${HASH_FILES[@]}"; do
+        img_sz=$(stat -c%s "$img" 2>/dev/null || stat -f%z "$img" 2>/dev/null || echo 0)
+        if [ "$img_sz" -eq 0 ]; then
+            echo "❌ Error: Cannot generate checksum for 0-byte file: $img"
+            exit 1
+        fi
         echo -n "   Hashing $img... "
         hash_val=$(calc_file_sha256 "$img")
         echo "$hash_val  $img" >> sha256sum.txt
