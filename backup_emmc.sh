@@ -54,7 +54,7 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     echo "Usage: sudo ./backup_emmc.sh <target_device> [output_directory] [mode]"
     echo ""
     echo "Arguments:"
-    echo "  target_device     : Pomera eMMC device in UMS mode (Linux: /dev/sdb, macOS: /dev/rdiskN)"
+    echo "  target_device     : Pomera eMMC device in UMS mode (Linux: /dev/sdX, macOS: /dev/rdiskN)"
     echo "  output_directory  : Directory to save backup images (default: ./backup_file)"
     echo "  mode              : Dump mode: 'both' (default), 'raw', or 'parts'"
     echo "                      - 'both'  : Full emmc.img (7.3GB) + separate p1~p27 images (Best for Stock King Jim OS)"
@@ -68,16 +68,16 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     echo "Examples:"
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "  # Stock Pomera Backup (Default: full raw image + 27 partitions)"
-        echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./factory_backup"
+        echo "  sudo ./backup_emmc.sh /dev/rdiskN ./factory_backup"
         echo ""
         echo "  # Custom OS (OpenBSD / Linux) Backup (Full raw disk image only)"
-        echo "  sudo ./backup_emmc.sh /dev/rdisk2 ./custom_backup raw"
+        echo "  sudo ./backup_emmc.sh /dev/rdiskN ./custom_backup raw"
     else
         echo "  # Stock Pomera Backup (Default: full raw image + 27 partitions)"
-        echo "  sudo ./backup_emmc.sh /dev/sdb ./factory_backup"
+        echo "  sudo ./backup_emmc.sh /dev/sdX ./factory_backup"
         echo ""
         echo "  # Custom OS (OpenBSD / Linux) Backup (Full raw disk image only)"
-        echo "  sudo ./backup_emmc.sh /dev/sdb ./custom_backup raw"
+        echo "  sudo ./backup_emmc.sh /dev/sdX ./custom_backup raw"
     fi
     echo ""
     show_block_devices

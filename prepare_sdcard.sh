@@ -22,8 +22,8 @@ show_help() {
     echo ""
     echo "Examples:"
     echo "  $0                     # Build default READ-ONLY bootloader images into ./sdcard_images/"
-    echo "  $0 /dev/sdb            # Build READ-ONLY bootloader & flash directly to SD card"
-    echo "  $0 --rw /dev/sdb       # Build READ-WRITE bootloader & flash directly to SD card"
+    echo "  $0 /dev/sdX            # Build READ-ONLY bootloader & flash directly to SD card (Linux: /dev/sdX, macOS: /dev/rdiskN)"
+    echo "  $0 --rw /dev/sdX       # Build READ-WRITE bootloader & flash directly to SD card"
     exit 0
 }
 
@@ -381,7 +381,7 @@ if [ -z "$TARGET_SD_DEV" ]; then
             echo "   (No external disks detected. Make sure SD card reader is connected.)"
         fi
         echo ""
-        read -p "Enter target SD card device (e.g. /dev/rdisk4 or disk4) or press Enter to skip: " TARGET_SD_DEV
+        read -p "Enter target SD card device (e.g. /dev/rdiskN or diskN) or press Enter to skip: " TARGET_SD_DEV
     else
         echo "Available External Disks (Linux):"
         ext_disks=$(lsblk -d -o NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -E "usb|mmc" || true)
@@ -391,7 +391,7 @@ if [ -z "$TARGET_SD_DEV" ]; then
             lsblk -e 7 -o NAME,SIZE,TYPE,MODEL,TRAN 2>/dev/null || true
         fi
         echo ""
-        read -p "Enter target SD card device (e.g. /dev/sdb) or press Enter to skip: " TARGET_SD_DEV
+        read -p "Enter target SD card device (e.g. /dev/sdX) or press Enter to skip: " TARGET_SD_DEV
     fi
 fi
 
@@ -407,7 +407,7 @@ if [ -n "$TARGET_SD_DEV" ]; then
 else
     echo "Next steps to flash to SD card:"
     if [ "$OS_NAME" = "Darwin" ]; then
-        echo "1. Identify your SD card device (e.g. /dev/disk4):"
+        echo "1. Identify your SD card device (e.g. /dev/diskN):"
         echo "   diskutil list external"
         echo "2. Unmount the SD card volume (Required on macOS before dd):"
         echo "   diskutil unmountDisk /dev/diskN"
@@ -417,7 +417,7 @@ else
         echo "   sudo dd if=sdcard_images/uboot.img of=/dev/rdiskN bs=512 seek=16384"
         echo "   sync"
     else
-        echo "1. Insert your SD card into your PC and identify its device (e.g. /dev/sda):"
+        echo "1. Insert your SD card into your PC and identify its device (e.g. /dev/sdX):"
         echo "   lsblk -d -o NAME,SIZE,MODEL,TRAN | grep -E \"usb|mmc\""
         echo "2. Run the following dd commands to flash raw boot sectors:"
         echo "   sudo dd if=sdcard_images/idbloader.img of=/dev/sdX bs=512 seek=64 conv=fdatasync"

@@ -44,22 +44,22 @@ if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; t
     echo "Usage: sudo ./restore_emmc.sh <target_device> [image_directory]"
     echo ""
     echo "Arguments:"
-    echo "  target_device   : Pomera eMMC device in UMS mode (Linux: /dev/sdb, macOS: /dev/rdiskN)"
+    echo "  target_device   : Pomera eMMC device in UMS mode (Linux: /dev/sdX, macOS: /dev/rdiskN)"
     echo "  image_directory : Directory containing backup images (default: ./restore_file)"
     echo ""
     echo "Examples:"
     if [ "$OS_NAME" = "Darwin" ]; then
         echo "  # Restore from default ./restore_file directory"
-        echo "  sudo ./restore_emmc.sh /dev/rdisk2"
+        echo "  sudo ./restore_emmc.sh /dev/rdiskN"
         echo ""
         echo "  # Restore from a specific backup directory"
-        echo "  sudo ./restore_emmc.sh /dev/rdisk2 ./backup_file"
+        echo "  sudo ./restore_emmc.sh /dev/rdiskN ./backup_file"
     else
         echo "  # Restore from default ./restore_file directory"
-        echo "  sudo ./restore_emmc.sh /dev/sdb"
+        echo "  sudo ./restore_emmc.sh /dev/sdX"
         echo ""
         echo "  # Restore from a specific backup directory"
-        echo "  sudo ./restore_emmc.sh /dev/sdb ./backup_file"
+        echo "  sudo ./restore_emmc.sh /dev/sdX ./backup_file"
     fi
     echo ""
     show_block_devices

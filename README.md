@@ -95,8 +95,8 @@ Run the following script to automatically compile and generate the U-Boot UMS bi
 ### Step 2: Write Raw Sectors to the SD Card
 Insert the SD card into your PC and identify its device node:
 
-* **Linux**: `lsblk` (e.g., `/dev/sdb` or `/dev/sdc`)
-* **macOS**: `diskutil list external` (Filters for external storage only. e.g., `/dev/rdisk2` or `/dev/rdisk3`)
+* **Linux**: `lsblk` (Check detected `/dev/sdX`, e.g. `sdb`, `sdc` depending on system)
+* **macOS**: `diskutil list external` (Filters for external storage only. Check detected `/dev/rdiskN`, e.g. `rdisk2`, `rdisk3` depending on system)
 
 Write the bootloader directly to the raw sectors of the SD card using `dd`:
 
@@ -168,9 +168,9 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 >    * Due to macOS power-saving behavior, leaving an idle USB storage device without active transfer for tens of seconds triggers a USB suspend, causing Pomera to display `CTRL+C - Operation aborted` and exit UMS mode.
 >    * Start `backup_emmc.sh` or `restore_emmc.sh` immediately after connecting USB and proceed past the confirmation prompt (`yes`) to initiate data transfer. Active transfer prevents suspension.
 
-6. Confirm that the Pomera internal eMMC (~7.3 GB) is recognized as a block device on your PC:
-   * **Linux**: `lsblk` (e.g., `/dev/sdb`)
-   * **macOS**: `diskutil list external` (e.g., `/dev/rdisk5`)
+6. Check the terminal on your PC to verify that the Pomera internal eMMC is recognized as a storage device (~7.3GB):
+   * **Linux**: `lsblk` (Target: `/dev/sdX`)
+   * **macOS**: `diskutil list external` (Target: `/dev/rdiskN`)
 
 ---
 
@@ -275,7 +275,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 | **`/dev/sdX` or `/dev/rdiskN` does not appear on PC after connecting USB** | • Powering on with the USB cable already plugged in may prevent UMS initialization. Follow the sequence: **"Power ON with USB unplugged → Wait for LCD banner → Connect USB"**.<br>• Check that the SD card is fully inserted. |
 | **Reconnecting USB cable is not recognized** | • Due to Rockchip USB controller hardware characteristics, re-plugging USB while in UMS idle mode is not auto-detected. **Hold Power button 10–11s to turn OFF, then 3–4s to power on again.** |
 | **Device does not power on / Screen stays black** | • Battery may be fully drained. Connect a USB charger and let it charge before retrying.<br>• Hold Power button for 10–11 seconds for hard reset, then try turning on again (3–4s). |
-| **Backup files not found during restore** | • Place `mmcblk0p1.img`–`mmcblk0p27.img` or `emmc.img` inside the `restore_file/` directory, or pass the backup directory path as an argument (e.g. `./restore_emmc.sh /dev/rdisk2 ./backup_file`). |
+| **Backup files not found during restore** | • Place `mmcblk0p1.img`–`mmcblk0p27.img` or `emmc.img` inside the `restore_file/` directory, or pass the backup directory path as an argument (e.g. `./restore_emmc.sh <target_device> ./backup_file` where `<target_device>` is `/dev/sdX` or `/dev/rdiskN`). |
 
 ---
 

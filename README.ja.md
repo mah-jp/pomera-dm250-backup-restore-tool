@@ -96,8 +96,8 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 ### ステップ 2: SDカードの生セクタへの書き込み
 SDカードをPCに挿入し、デバイス名を確認します：
 
-* **Linux**: `lsblk`（例: `/dev/sdb` や `/dev/sdc`）
-* **macOS**: `diskutil list external`（外付けストレージのみ抽出表示。例: `/dev/rdisk2` や `/dev/rdisk3`）
+* **Linux**: `lsblk`（認識された `/dev/sdX` を確認。環境により `sdb`, `sdc` など）
+* **macOS**: `diskutil list external`（外付けストレージのみ抽出表示。認識された `/dev/rdiskN` を確認。環境により `rdisk2`, `rdisk3` など）
 
 確認したデバイス名に対して、以下のコマンドでブートセクタ領域に書き込みます：
 
@@ -170,8 +170,8 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 >    * USB接続後は手動操作に時間をかけず、速やかに `backup_emmc.sh` または `restore_emmc.sh` を実行して確認プロンプト（`yes`）を進めてください（転送が始まれば切断されなくなります）。
 
 6. PCのターミナルで確認し、Pomera 内蔵eMMCがストレージデバイス（約 7.3GB）として認識されていることを確認します：
-   * **Linux**: `lsblk`（出力例: `/dev/sdb`）
-   * **macOS**: `diskutil list external`（出力例: `/dev/rdisk5`）
+   * **Linux**: `lsblk`（確認例: `/dev/sdX`）
+   * **macOS**: `diskutil list external`（確認例: `/dev/rdiskN`）
 
 ---
 
@@ -276,7 +276,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 | **PCにUSB接続しても `/dev/sdX`（`/dev/rdiskN`）が現れない** | ・USBケーブルを挿したまま電源を入れるとUMSが開始されない場合があります。**「USBを抜いた状態で電源ON → 画面点灯後にUSB挿入」** の順序を守ってください。<br>・SDカードが正しく奥まで挿入されているか確認してください。 |
 | **USBケーブルを挿し直しても認識されない** | ・Rockchip USBコントローラのハードウェア仕様により、UMS待機中にケーブルを抜いた後の再挿入は自動認識されません。**一度 Pomera の電源ボタンを10〜11秒長押ししてOFFにし、再度3〜4秒長押しして入れ直してください**。 |
 | **電源が入らない・画面がつかない** | ・バッテリーが完全に放電している可能性があります。USB充電器にしばらく接続して充電してから再試行してください。<br>・電源ボタンを10〜11秒長押しして強制完全オフにしてから、再度3〜4秒長押しでお試しください。 |
-| **バックアップファイルが見つからない** | ・`mmcblk0p1.img` 〜 `mmcblk0p27.img` または `emmc.img` を `restore_file/` ディレクトリに配置するか、引数でバックアップ先ディレクトリを指定してください（例: `./restore_emmc.sh /dev/rdisk2 ./backup_file`）。 |
+| **バックアップファイルが見つからない** | ・`mmcblk0p1.img` 〜 `mmcblk0p27.img` または `emmc.img` を `restore_file/` ディレクトリに配置するか、引数でバックアップ先ディレクトリを指定してください（例: `./restore_emmc.sh <target_device> ./backup_file` ※Linux: `/dev/sdX`, macOS: `/dev/rdiskN`）。 |
 
 ---
 
