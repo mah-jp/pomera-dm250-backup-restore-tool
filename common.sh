@@ -142,6 +142,109 @@ calc_stream_sha256() {
     fi
 }
 
+# Real-time monitored SHA256 checksum calculation for devices or large files
+# Uses a FIFO and OS status signals (SIGINFO on macOS / SIGUSR1 on Linux) to poll dd read bytes
+# Outputs progress to stderr and returns hash on stdout
+calc_source_hash_with_progress() {
+    local src="$1"
+    local offset_mb="${2:-0}"
+    local size_bytes="$3"
+    local label="${4:-Verifying}"
+    
+    local total_mb=$(( (size_bytes + 1048575) / 1048576 ))
+    [ "$total_mb" -le 0 ] && total_mb=1
+    
+    if [ "$OS_NAME" = "Darwin" ] && [[ "$src" == *disk* ]]; then
+        diskutil unmountDisk "$(resolve_disk_node "$src")" >/dev/null 2>&1 || true
+    fi
+    
+    local tmp_dir=$(mktemp -d /tmp/pomera_hash.XXXXXX)
+    local fifo="$tmp_dir/stream.fifo"
+    local prog_log="$tmp_dir/progress.log"
+    local hash_file="$tmp_dir/hash.txt"
+    mkfifo "$fifo"
+    
+    # Background hash stream with exact byte cutoff via head -c
+    (
+        head -c "$size_bytes" < "$fifo" | calc_stream_sha256 > "$hash_file" 2>/dev/null
+    ) &
+    local hash_pid=$!
+    
+    # Calculate block size and block count based on 4MB alignment
+    local bs="1M"
+    local skip="$offset_mb"
+    local count=$(( (size_bytes + 1048575) / 1048576 ))
+    if [ "$offset_mb" -eq 0 ]; then
+        bs="4M"
+        skip=0
+        count=$(( (size_bytes + 4194303) / 4194304 ))
+    elif [ $((offset_mb % 4)) -eq 0 ]; then
+        bs="4M"
+        skip=$((offset_mb / 4))
+        count=$(( (size_bytes + 4194303) / 4194304 ))
+    fi
+    
+    # Background dd feeding the FIFO
+    (
+        set +e +o pipefail 2>/dev/null || true
+        if [ "$skip" -gt 0 ]; then
+            dd if="$src" of="$fifo" bs="$bs" skip="$skip" count="$count" 2> "$prog_log"
+        else
+            dd if="$src" of="$fifo" bs="$bs" count="$count" 2> "$prog_log"
+        fi
+    ) &
+    local dd_pid=$!
+    
+    local v_start=$(date +%s)
+    local sig="INFO"
+    [ "$OS_NAME" != "Darwin" ] && sig="USR1"
+    
+    while kill -0 "$dd_pid" 2>/dev/null; do
+        sleep 1
+        kill -$sig "$dd_pid" 2>/dev/null || true
+        local cur_bytes=$(awk '/bytes (transferred|copied)/ {b=$1} END {print b}' "$prog_log" 2>/dev/null || echo 0)
+        [ -z "$cur_bytes" ] && cur_bytes=0
+        local cur_mb=$((cur_bytes / 1048576))
+        [ "$cur_mb" -gt "$total_mb" ] && cur_mb="$total_mb"
+        
+        local now=$(date +%s)
+        local elapsed=$((now - v_start))
+        local speed_mb_s=0
+        [ "$elapsed" -gt 0 ] && speed_mb_s=$((cur_mb / elapsed))
+        
+        local pct=$((cur_mb * 100 / total_mb))
+        [ "$pct" -gt 100 ] && pct=100
+        local remain_mb=$((total_mb > cur_mb ? total_mb - cur_mb : 0))
+        local eta_str="--:--"
+        if [ "$cur_mb" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
+            local eta_sec=$((remain_mb * elapsed / cur_mb))
+            local eta_m=$((eta_sec / 60))
+            local eta_s=$((eta_sec % 60))
+            eta_str=$(printf "%02d:%02d" "$eta_m" "$eta_s")
+        fi
+        local el_m=$((elapsed / 60))
+        local el_s=$((elapsed % 60))
+        printf "\r   %s: [ %d / %d MB ] (%d%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%s" \
+            "$label" "$cur_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str" >&2
+    done
+    
+    wait "$dd_pid" 2>/dev/null || true
+    wait "$hash_pid" 2>/dev/null || true
+    
+    local now=$(date +%s)
+    local elapsed=$((now - v_start))
+    [ "$elapsed" -le 0 ] && elapsed=1
+    local speed_mb_s=$((total_mb / elapsed))
+    local el_m=$((elapsed / 60))
+    local el_s=$((elapsed % 60))
+    printf "\r   %s: [ %d / %d MB ] (100%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ✅ Done       \n" \
+        "$label" "$total_mb" "$total_mb" "$speed_mb_s" "$el_m" "$el_s" >&2
+        
+    local result_hash=$(cat "$hash_file" 2>/dev/null || echo "")
+    rm -rf "$tmp_dir" 2>/dev/null || true
+    echo "$result_hash"
+}
+
 # ---------------------------------------------------------------------
 # File Ownership Helper
 # ---------------------------------------------------------------------

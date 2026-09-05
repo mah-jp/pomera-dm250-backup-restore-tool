@@ -192,8 +192,8 @@ monitor_dump_progress() {
             local speed_mb_s=$((cur_mb / elapsed))
             local remain_mb=$((total_mb > cur_mb ? total_mb - cur_mb : 0))
             local eta_str="--:--"
-            if [ "$speed_mb_s" -gt 0 ]; then
-                local eta_sec=$((remain_mb / speed_mb_s))
+            if [ "$cur_mb" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
+                local eta_sec=$((remain_mb * elapsed / cur_mb))
                 local eta_m=$((eta_sec / 60))
                 local eta_s=$((eta_sec % 60))
                 eta_str=$(printf "%02d:%02d" "$eta_m" "$eta_s")
@@ -372,10 +372,18 @@ if [ ${#HASH_FILES[@]} -gt 0 ]; then
             echo "❌ Error: Cannot generate checksum for 0-byte file: $img"
             exit 1
         fi
-        echo -n "   Hashing $img... "
-        hash_val=$(calc_file_sha256 "$img")
-        echo "$hash_val  $img" >> sha256sum.txt
-        echo "✅"
+        img_mb=$(( (img_sz + 1048575) / 1048576 ))
+        if [ "$img_mb" -ge 256 ]; then
+            echo "   Hashing $img (${img_mb} MB)..."
+            hash_val=$(calc_source_hash_with_progress "$img" 0 "$img_sz" "Hashing")
+            echo "$hash_val  $img" >> sha256sum.txt
+            echo "      └─ ✅ Checksum generated OK"
+        else
+            echo -n "   Hashing $img... "
+            hash_val=$(calc_file_sha256 "$img")
+            echo "$hash_val  $img" >> sha256sum.txt
+            echo "✅"
+        fi
     done
 fi
 

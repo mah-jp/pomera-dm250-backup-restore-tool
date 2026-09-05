@@ -209,8 +209,8 @@ chunk_write_with_progress() {
         [ "$pct" -gt 100 ] && pct=100
         local remain_mb=$((total_mb > written_mb ? total_mb - written_mb : 0))
         local eta_str="--:--"
-        if [ "$speed_mb_s" -gt 0 ]; then
-            local eta_sec=$((remain_mb / speed_mb_s))
+        if [ "$written_mb" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
+            local eta_sec=$((remain_mb * elapsed / written_mb))
             local eta_m=$((eta_sec / 60))
             local eta_s=$((eta_sec % 60))
             eta_str=$(printf "%02d:%02d" "$eta_m" "$eta_s")
@@ -292,41 +292,8 @@ if [ -n "$FULL_IMG" ]; then
     echo ""
     
     echo "🔍 Verifying checksum for full image (reading from $EMMC_DEV with 4MB blocks)..."
-    V_START=$(date +%s)
     ORIG_HASH=$(calc_file_sha256 "$FULL_IMG")
-    
-    (
-        calc_emmc_hash "$EMMC_DEV" 0 "$IMG_SIZE" > "$TEMP_HASH_FILE" 2>/dev/null
-    ) &
-    HASH_PID=$!
-    
-    # Estimate read speed based on measured write speed (reads on USB 2.0 eMMC are typically >= write speed, approx 18-24 MB/s)
-    est_speed_mb_s="${LAST_WRITE_SPEED_MB_S:-20}"
-    if [ "$est_speed_mb_s" -lt 15 ]; then
-        est_speed_mb_s=18
-    fi
-    
-    while kill -0 "$HASH_PID" 2>/dev/null; do
-        sleep 2
-        NOW=$(date +%s)
-        EL=$((NOW - V_START))
-        EL_M=$((EL / 60))
-        EL_S=$((EL % 60))
-        EST_READ_MB=$((EL * est_speed_mb_s))
-        [ "$EST_READ_MB" -gt "$IMG_MB" ] && EST_READ_MB="$IMG_MB"
-        PCT=$((EST_READ_MB * 100 / IMG_MB))
-        REMAIN_MB=$((IMG_MB > EST_READ_MB ? IMG_MB - EST_READ_MB : 0))
-        ETA_SEC=$((REMAIN_MB / est_speed_mb_s))
-        ETA_M=$((ETA_SEC / 60))
-        ETA_S=$((ETA_SEC % 60))
-        printf "\r   Verifying: [ ~%d / %d MB ] (~%d%%) | Est. Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%02d:%02d" \
-            "$EST_READ_MB" "$IMG_MB" "$PCT" "$est_speed_mb_s" "$EL_M" "$EL_S" "$ETA_M" "$ETA_S"
-    done
-    wait "$HASH_PID" || true
-    echo ""
-    
-    EMMC_HASH=$(cat "$TEMP_HASH_FILE" 2>/dev/null || echo "")
-    rm -f "$TEMP_HASH_FILE" 2>/dev/null
+    EMMC_HASH=$(calc_source_hash_with_progress "$EMMC_DEV" 0 "$IMG_SIZE" "Verifying")
     
     if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
         echo "✅ Full image checksum verified OK!"
@@ -413,8 +380,8 @@ for i in $(seq 1 27); do
                 [ "$PCT" -gt 100 ] && PCT=100
                 REMAIN_MB=$((TOTAL_RESTORE_MB > WRITTEN_MB ? TOTAL_RESTORE_MB - WRITTEN_MB : 0))
                 ETA_STR="--:--"
-                if [ "$SPEED_MB_S" -gt 0 ]; then
-                    ETA_SEC=$((REMAIN_MB / SPEED_MB_S))
+                if [ "$WRITTEN_MB" -gt 0 ] && [ "$ELAPSED" -gt 0 ]; then
+                    ETA_SEC=$((REMAIN_MB * ELAPSED / WRITTEN_MB))
                     ETA_M=$((ETA_SEC / 60))
                     ETA_S=$((ETA_SEC % 60))
                     ETA_STR=$(printf "%02d:%02d" "$ETA_M" "$ETA_S")
@@ -425,18 +392,31 @@ for i in $(seq 1 27); do
             fi
             
             # Checksum Verification
-            echo -n "   🔍 Verifying $filename checksum... "
             IMG_SIZE=$(stat -c%s "$img_path" 2>/dev/null || stat -f%z "$img_path" 2>/dev/null)
             ORIG_HASH=$(calc_file_sha256 "$img_path")
-            EMMC_HASH=$(calc_emmc_hash "$EMMC_DEV" "$offset" "$IMG_SIZE")
             
-            if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
-                echo "✅ OK"
+            if [ "$p_mb" -ge 64 ]; then
+                echo "   🔍 Verifying $filename checksum (${p_mb} MB)..."
+                EMMC_HASH=$(calc_source_hash_with_progress "$EMMC_DEV" "$offset" "$IMG_SIZE" "Verifying")
+                if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
+                    echo "      └─ ✅ OK"
+                else
+                    echo "      └─ ❌ CHECKSUM MISMATCH!"
+                    echo "         Original: $ORIG_HASH"
+                    echo "         On eMMC:  $EMMC_HASH"
+                    VERIFY_ERRORS=$((VERIFY_ERRORS + 1))
+                fi
             else
-                echo "❌ MISMATCH!"
-                echo "      Original: $ORIG_HASH"
-                echo "      On eMMC:  $EMMC_HASH"
-                VERIFY_ERRORS=$((VERIFY_ERRORS + 1))
+                echo -n "   🔍 Verifying $filename checksum... "
+                EMMC_HASH=$(calc_emmc_hash "$EMMC_DEV" "$offset" "$IMG_SIZE")
+                if [ "$ORIG_HASH" = "$EMMC_HASH" ]; then
+                    echo "✅ OK"
+                else
+                    echo "❌ MISMATCH!"
+                    echo "      Original: $ORIG_HASH"
+                    echo "      On eMMC:  $EMMC_HASH"
+                    VERIFY_ERRORS=$((VERIFY_ERRORS + 1))
+                fi
             fi
             RESTORED_COUNT=$((RESTORED_COUNT + 1))
         fi
