@@ -220,8 +220,16 @@ chunk_write_with_progress() {
         printf "\r   Progress: [ %d / %d MB ] (%d%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%s" \
             "$written_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str"
     done
+    local now=$(date +%s)
+    local elapsed=$((now - start_ts))
+    [ "$elapsed" -le 0 ] && elapsed=1
+    local speed_mb_s=0
+    [ "$elapsed" -gt 0 ] && speed_mb_s=$((total_mb / elapsed))
     LAST_WRITE_SPEED_MB_S="$speed_mb_s"
-    echo ""
+    local el_m=$((elapsed / 60))
+    local el_s=$((elapsed % 60))
+    printf "\r   Progress: [ %d / %d MB ] (100%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ✅ Done       \n" \
+        "$total_mb" "$total_mb" "$speed_mb_s" "$el_m" "$el_s"
 }
 
 portable_write() {

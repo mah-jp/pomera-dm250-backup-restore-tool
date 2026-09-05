@@ -206,11 +206,24 @@ monitor_dump_progress() {
     done
     local exit_code=0
     wait "$target_pid" || exit_code=$?
-    echo ""
     if [ "$exit_code" -ne 0 ]; then
+        echo ""
         echo "❌ Error: Background dump process (PID $target_pid) failed with exit code $exit_code."
         return "$exit_code"
     fi
+
+    # Print final completion progress line with '✅ Done'
+    local now=$(date +%s)
+    local elapsed=$((now - start_ts))
+    [ "$elapsed" -le 0 ] && elapsed=1
+    local cur_bytes=$(stat -f%z "$out_file" 2>/dev/null || stat -c%s "$out_file" 2>/dev/null || echo "$total_bytes")
+    local cur_mb=$((cur_bytes / 1048576))
+    [ "$cur_mb" -gt "$total_mb" ] && cur_mb="$total_mb"
+    local speed_mb_s=$((cur_mb / elapsed))
+    local el_m=$((elapsed / 60))
+    local el_s=$((elapsed % 60))
+    printf "\r   Progress: [ %d / %d MB ] (100%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ✅ Done       \n" \
+        "$cur_mb" "$total_mb" "$speed_mb_s" "$el_m" "$el_s"
 }
 
 # Step 1: Full RAW eMMC Dump (if mode is 'both' or 'raw')
