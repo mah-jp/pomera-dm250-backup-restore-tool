@@ -68,39 +68,47 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 
 ## 🚀 SD Card UMS Backup & Restore Guide
 
-### Step 1: Build the UMS SD Bootloader
+### Step 1: Create the SD Card (Build & Write)
 
-Run the following script to automatically compile and generate the U-Boot UMS binaries:
+Insert your SD card into your PC and run the script below.
+The script handles everything interactively and automatically, from compiling the U-Boot UMS bootloader to flashing raw boot sectors directly onto the SD card:
 
 ```bash
-# [Default: Safe READ-ONLY Mode (Recommended for Backup)]
-# Write-protected against accidental PC overwrites.
+# [Default / Recommended for Backup: Safe READ-ONLY Mode]
+# Hardware write-protected against accidental PC overwrites.
 ./prepare_sdcard.sh
 
-# [READ-WRITE Mode (Required ONLY when restoring/flashing Pomera)]
+# [Restore Only: READ-WRITE Mode]
+# Required only when flashing/restoring backup images back to Pomera.
 ./prepare_sdcard.sh --readwrite
 ```
 
+#### Execution Workflow (Fully Automated):
+1. The script automatically compiles the U-Boot UMS bootloader.
+2. Once built, it scans and displays detected external storage drives (SD cards):
+   ```text
+   Available External Disks (macOS):
+   /dev/disk4 (external, physical): ...
+
+   Enter target SD card device (e.g. /dev/rdiskN or diskN) or press Enter to skip: /dev/rdisk4
+   ```
+3. Enter your SD card's device identifier (e.g. `/dev/rdisk4` or `disk4` on macOS, or `/dev/sdX` on Linux). The script automatically unmounts partitions, confirms your intent (`yes`), and safely flashes the raw boot sectors.
+   *(Note: You can also specify the target drive directly as a command-line argument, e.g. `./prepare_sdcard.sh /dev/rdisk4`, to flash in one step).*
+
 > [!TIP]
 > **🛡️ Safety-First Read-Only Default Specification**
-> * Running `./prepare_sdcard.sh` without options builds a **hardware write-protected** bootloader.
+> * Running `./prepare_sdcard.sh` without options builds and flashes a **hardware write-protected** bootloader.
 > * Even if you accidentally run `dd` to the Pomera disk or click "Initialize" on macOS, **the Pomera firmware blocks all writes, keeping your device data completely safe**.
 > * When you need to flash/restore backup images back to Pomera, build the SD card with `--readwrite` (or `--rw`).
 
-* Upon completion, `idbloader.img` and `uboot.img` will be generated inside the `sdcard_images/` directory.
-* (You can also specify the target drive directly to write in one step: `./prepare_sdcard.sh /dev/sdX` or `./prepare_sdcard.sh --rw /dev/rdiskN`).
+<details>
+<summary><b>💡 Manual Raw Sector Flashing with dd (Optional / Advanced)</b></summary>
 
----
+If you press Enter without typing a device name at the prompt, the script skips automated writing and preserves `idbloader.img` and `uboot.img` inside the `sdcard_images/` directory.
 
-### Step 2: Write Raw Sectors to the SD Card
-Insert the SD card into your PC and identify its device node:
+To manually flash raw sectors using `dd`, run the following commands:
 
-* **Linux**: `lsblk` (Check detected `/dev/sdX`, e.g. `sdb`, `sdc` depending on system)
-* **macOS**: `diskutil list external` (Filters for external storage only. Check detected `/dev/rdiskN`, e.g. `rdisk2`, `rdisk3` depending on system)
-
-Write the bootloader directly to the raw sectors of the SD card using `dd`:
-
-#### 🐧 Linux:
+##### 🐧 Linux:
 ```bash
 # Write IDB loader (DDR init + miniloader) to sector 64
 sudo dd if=sdcard_images/idbloader.img of=/dev/sdX seek=64 conv=fdatasync
@@ -111,7 +119,7 @@ sudo dd if=sdcard_images/uboot.img of=/dev/sdX seek=16384 conv=fdatasync
 sync
 ```
 
-#### 🍏 macOS:
+##### 🍏 macOS:
 ```bash
 # 1. Unmount all partitions on the SD card (required on macOS)
 diskutil unmountDisk /dev/diskN
@@ -129,9 +137,11 @@ sync
 ```
 *(Note: You do not need to format or copy files into the FAT partition. These images are written directly to raw sectors.)*
 
+</details>
+
 ---
 
-### Step 3: Boot Pomera and Connect to PC
+### Step 2: Boot Pomera and Connect to PC
 
 1. Insert the prepared SD card into the Pomera DM250.
 2. **Leave the USB cable disconnected.**
@@ -174,10 +184,10 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 
 ---
 
-### Step 4-A: [Backup] Dump Pomera eMMC to PC (`backup_emmc.sh`)
+### Step 3-A: [Backup] Dump Pomera eMMC to PC (`backup_emmc.sh`)
 
 Performs a read-only (safe) dump of the entire internal eMMC to your PC.
-*(Replace `<target_device>` with your Pomera device identifier: **Linux: `/dev/sdX`**, **macOS: `/dev/rdiskN`**)*:
+*(Replace `<target_device>` with your Pomera device identifier confirmed in Step 2: **Linux: `/dev/sdX`**, **macOS: `/dev/rdiskN`**)*:
 
 ```bash
 # [Stock King Jim OS Backup] (Default: Full RAW image + 27 partition images)
@@ -228,7 +238,7 @@ With this tool, you can switch between the factory Pomera firmware and custom OS
 
 ---
 
-### Step 4-B: [Restore] Flash Backup Back to Pomera (`restore_emmc.sh`)
+### Step 3-B: [Restore] Flash Backup Back to Pomera (`restore_emmc.sh`)
 
 > [!IMPORTANT]
 > **⚠️ Restore Prerequisite: Read-Write SD Card Required**
@@ -275,7 +285,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 ---
 
-### Step 5: Completion & Reboot
+### Step 4: Completion & Reboot
 1. When the terminal displays `🎉 Restoration completed successfully!`, the process is finished.
 2. Disconnect the USB Type-C cable.
 3. Eject the SD card.

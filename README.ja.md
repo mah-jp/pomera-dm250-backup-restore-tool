@@ -68,40 +68,47 @@ sudo pacman -S --needed curl git base-devel arm-linux-gnueabihf-gcc bison flex d
 
 ## 🚀 SDカード UMS方式によるバックアップ＆復元手順
 
-### ステップ 1: SDブートローダーの生成
+### ステップ 1: SDカードの作成（ビルド＆書き込み）
 
-以下のスクリプトを実行して、U-Boot UMSバイナリを自動ビルド・生成します：
+SDカードをPCに挿入し、以下のスクリプトを実行します。
+必要なブートローダーの自動ビルドから、接続されたSDカードへの生セクタ書き込みまで**対話形式（全自動）で完了**します：
 
 ```bash
-# 【デフォルト: 安全な Read-Only モード（バックアップ推奨）】
+# 【通常（バックアップ推奨）: 安全な Read-Only モード】
 # PCからの誤書き込み・上書きを物理ブロックする安全モードです。
 ./prepare_sdcard.sh
 
-# 【書き込み許可: Read-Write モード（リストア・復元時のみ使用）】
-# ポメラ内蔵eMMCへのデータ書き戻しを行いたい場合はこちらを指定します。
+# 【復元時のみ: 書き込み許可 Read-Write モード】
+# ポメラ内蔵eMMCへのデータ書き戻し（リストア）を行いたい場合はこちらを指定します。
 ./prepare_sdcard.sh --readwrite
 ```
 
+#### 実行の流れ（自動完結）:
+1. スクリプトが自動で U-Boot UMS ブートローダーをコンパイルします。
+2. 完了後、PCに接続されている外部ディスク（SDカード等）を自動検出し、候補を表示して入力を求めます：
+   ```text
+   Available External Disks (macOS):
+   /dev/disk4 (external, physical): ...
+
+   Enter target SD card device (e.g. /dev/rdiskN or diskN) or press Enter to skip: /dev/rdisk4
+   ```
+3. 表示されたデバイス名（例: macOS なら `/dev/rdisk4` や `disk4`、Linux なら `/dev/sdX`）を入力すると、自動でアンマウントを行い、最終確認プロンプト（`yes`）を経てブートセクタ領域への書き込みが安全に完了します。
+   *(※ 事前にデバイス名が分かっている場合は、`./prepare_sdcard.sh /dev/rdisk4` のように引数に指定してワンライナーで作成することも可能です)*
+
 > [!TIP]
 > **🛡️ 安全第一の Read-Only（読み取り専用）デフォルト仕様**
-> * 通常の `./prepare_sdcard.sh` を実行すると、**ハードウェアライトプロテクト（書き込み禁止）** が有効化されたブートローダーが生成されます。
-> * これにより、PC側で誤って `dd` 上書きを実行したり、macOSで誤って「初期化」を押しても、**Pomera 側が書き込みをブロックするため本体データは一切破損しません**。
+> * 通常の `./prepare_sdcard.sh` を実行すると、**ハードウェアライトプロテクト（書き込み禁止）** が有効化されたブートローダーが生成・書き込まれます。
+> * これにより、PC側で誤って `dd` 上書きを実行したり、macOSで誤って「初期化」を押しても、**Pomera 側が書き込みを物理ブロックするため本体データは一切破損しません**。
 > * Pomera へバックアップを書き戻す（復元する）時のみ、`--readwrite`（または `--rw`）を指定して SD カードを作成してください。
 
-※ 完了すると、`sdcard_images/` フォルダ内に `idbloader.img` と `uboot.img` が生成されます。
-（直接SDカードへ書き込む場合は、`./prepare_sdcard.sh /dev/sdX` や `./prepare_sdcard.sh --rw /dev/rdiskN` と指定することも可能です）
+<details>
+<summary><b>💡 【手動で書き込みたい場合（オプション / 上級者向け）】</b></summary>
 
----
+スクリプト実行時のデバイス入力プロンプトで何も入力せず Enter キーを押すと、SDカードへの自動書き込みをスキップし、`sdcard_images/` フォルダ内にイメージファイル（`idbloader.img`, `uboot.img`）のみを生成して終了します。
 
-### ステップ 2: SDカードの生セクタへの書き込み
-SDカードをPCに挿入し、デバイス名を確認します：
+自前で `dd` コマンドを使って生セクタへ手動書き込みを行いたい場合は、以下のコマンドを実行してください：
 
-* **Linux**: `lsblk`（認識された `/dev/sdX` を確認。環境により `sdb`, `sdc` など）
-* **macOS**: `diskutil list external`（外付けストレージのみ抽出表示。認識された `/dev/rdiskN` を確認。環境により `rdisk2`, `rdisk3` など）
-
-確認したデバイス名に対して、以下のコマンドでブートセクタ領域に書き込みます：
-
-#### 🐧 Linux の場合:
+##### 🐧 Linux の場合:
 ```bash
 # セクタ 64 に IDBローダー（DDR初期化+ミニローダー）を書き込む
 sudo dd if=sdcard_images/idbloader.img of=/dev/sdX seek=64 conv=fdatasync
@@ -112,7 +119,7 @@ sudo dd if=sdcard_images/uboot.img of=/dev/sdX seek=16384 conv=fdatasync
 sync
 ```
 
-#### 🍏 macOS の場合:
+##### 🍏 macOS の場合:
 ```bash
 # 1. SDカードのボリュームをアンマウント（macOSで必須）
 diskutil unmountDisk /dev/diskN
@@ -130,9 +137,11 @@ sync
 ```
 *(※ SDカードのFATフォーマット領域にファイルをコピーする必要はありません。生セクタへ直接書き込みます)*
 
+</details>
+
 ---
 
-### ステップ 3: Pomera の起動とPC接続
+### ステップ 2: Pomera の起動とPC接続
 
 1. 作成したSDカードを Pomera DM250 に挿入します。
 2. **USBケーブルは抜いた状態**にします。
@@ -175,10 +184,10 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 
 ---
 
-### ステップ 4-A: 【バックアップ取得】Pomera eMMC を PC に保存 (`backup_emmc.sh`)
+### ステップ 3-A: 【バックアップ取得】Pomera eMMC を PC に保存 (`backup_emmc.sh`)
 
 Pomera 側への書き込みを一切行わないリードオンリー（安全）動作で、PC側のストレージへ丸ごとダンプします。
-※ `<target_device>` には、ステップ3で確認した Pomera のデバイス名（**Linux: `/dev/sdX`**、**macOS: `/dev/rdiskN`**）を指定します。
+※ `<target_device>` には、ステップ2で確認した Pomera のデバイス名（**Linux: `/dev/sdX`**、**macOS: `/dev/rdiskN`**）を指定します。
 
 ```bash
 # 【キングジム純正OSのバックアップ】（デフォルト: フルイメージ＋27パーティション分割を保存）
@@ -229,7 +238,7 @@ sudo ./backup_emmc.sh <target_device> ./custom_backup raw
 
 ---
 
-### ステップ 4-B: 【リストア復元】バックアップを Pomera に書き戻し (`restore_emmc.sh`)
+### ステップ 3-B: 【リストア復元】バックアップを Pomera に書き戻し (`restore_emmc.sh`)
 
 > [!IMPORTANT]
 > **⚠️ リストア時の注意: Read-Write モードの SD カードが必要です**
@@ -276,7 +285,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 ---
 
-### ステップ 5: 完了と再起動
+### ステップ 4: 完了と再起動
 1. ターミナルに `🎉 Restoration completed successfully!` と表示されたら完了です。
 2. USBケーブルを抜きます。
 3. SDカードを取り出します。
