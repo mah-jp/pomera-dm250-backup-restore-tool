@@ -16,12 +16,12 @@
  	fsg->common->new_fsg = NULL;
  	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
  }
-@@ -2420,6 +2422,8 @@ static int fsg_common_init(struct fsg_common *common,
- 		curlun->cdrom = lun_cfg->cdrom;
- 		curlun->ro = lun_cfg->ro;
- 		curlun->initially_ro = curlun->ro;
-+		curlun->ro = 1;
-+		curlun->initially_ro = 1;
- 		curlun->removable = lun_cfg->removable;
- 		curlun->dev.release = fsg_lun_release;
- 		curlun->dev.parent = &cdev->gadget->dev;
+@@ -2488,6 +2490,8 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
+ 
+ 	for (i = 0; i < nluns; i++) {
+ 		common->luns[i].removable = 1;
++		common->luns[i].ro = 1;
++		common->luns[i].initially_ro = 1;
+ 
+ 		rc = fsg_lun_open(&common->luns[i], ums[i].num_sectors, ums->block_dev.blksz, "");
+ 		if (rc)

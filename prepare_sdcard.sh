@@ -224,7 +224,7 @@ fi
 cd "$WORK_DIR"
 mkdir -p u-boot
 echo "Downloading and extracting U-Boot source archive (~25MB)..."
-curl -sSL --retry 3 https://github.com/jcs/u-boot/archive/refs/heads/pomera-dm250.tar.gz | tar -xz -C u-boot --strip-components=1
+curl -sSL -f --retry 3 https://github.com/jcs/u-boot/archive/refs/heads/pomera-dm250.tar.gz | tar -xz -C u-boot --strip-components=1
 
 # Step 3: Fetch DTS sources and compile Device Tree Blob (pomera-dm250.dtb)
 echo "=== Step 3: Downloading DTS sources and Compiling Device Tree Blob ==="
@@ -273,15 +273,27 @@ echo "# CONFIG_TOOLS_MKEFICAPSULE is not set" >> configs/pomera-dm250_defconfig
 
 # Apply USB connection notify and mode patch based on mode
 if [ "$BUILD_MODE" = "ro" ]; then
-    if [ -f "$SCRIPT_DIR/patches/uboot_ums_readonly.patch" ]; then
-        echo "Applying U-Boot Read-Only UMS patch (Hardware Write-Protect)..."
-        patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_ums_readonly.patch" || true
+    PATCH_FILE="$SCRIPT_DIR/patches/uboot_ums_readonly.patch"
+    if [ ! -f "$PATCH_FILE" ]; then
+        echo "❌ Error: Required patch file not found: $PATCH_FILE"
+        exit 1
+    fi
+    echo "Applying U-Boot Read-Only UMS patch (Hardware Write-Protect)..."
+    if ! patch -p1 --forward < "$PATCH_FILE"; then
+        echo "❌ Error: Failed to apply Read-Only UMS patch ($PATCH_FILE)."
+        exit 1
     fi
     BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-ONLY); echo   eMMC is mounted as READ-ONLY USB drive to PC.; echo   Write operations are blocked.; echo   Run backup_emmc.sh to backup to PC.; echo =================================================; echo; ums 0 mmc 0"
 else
-    if [ -f "$SCRIPT_DIR/patches/uboot_ums_readwrite.patch" ]; then
-        echo "Applying U-Boot Read-Write UMS patch..."
-        patch -p1 --forward < "$SCRIPT_DIR/patches/uboot_ums_readwrite.patch" || true
+    PATCH_FILE="$SCRIPT_DIR/patches/uboot_ums_readwrite.patch"
+    if [ ! -f "$PATCH_FILE" ]; then
+        echo "❌ Error: Required patch file not found: $PATCH_FILE"
+        exit 1
+    fi
+    echo "Applying U-Boot Read-Write UMS patch..."
+    if ! patch -p1 --forward < "$PATCH_FILE"; then
+        echo "❌ Error: Failed to apply Read-Write UMS patch ($PATCH_FILE)."
+        exit 1
     fi
     BOOTCMD_STR="cls; echo; echo =================================================; echo   [Pomera DM250 PC Storage Mount]; echo   USB Mass Storage Mode Active (READ-WRITE); echo   eMMC is mounted as READ-WRITE USB drive to PC.; echo   Run backup_emmc.sh (Backup) or restore_emmc.sh (Restore); echo =================================================; echo; ums 0 mmc 0"
 fi
@@ -298,8 +310,8 @@ cd "$WORK_DIR"
 
 # Download Rockchip Binaries
 echo "=== Step 4: Downloading Rockchip DDR and MiniLoader Binaries ==="
-curl -L -o rk3128_ddr_300MHz_v2.12.bin https://raw.githubusercontent.com/rockchip-linux/rkbin/master/bin/rk31/rk3128_ddr_300MHz_v2.12.bin
-curl -L -o rk312x_miniloader_v2.63.bin https://raw.githubusercontent.com/rockchip-linux/rkbin/master/bin/rk31/rk312x_miniloader_v2.63.bin
+curl -sSL -f --retry 3 -o rk3128_ddr_300MHz_v2.12.bin https://raw.githubusercontent.com/rockchip-linux/rkbin/master/bin/rk31/rk3128_ddr_300MHz_v2.12.bin
+curl -sSL -f --retry 3 -o rk312x_miniloader_v2.63.bin https://raw.githubusercontent.com/rockchip-linux/rkbin/master/bin/rk31/rk312x_miniloader_v2.63.bin
 
 # Generate Bootloader Images
 echo "=== Step 5: Packaging Bootloader Images ==="

@@ -32,7 +32,7 @@ Pomera DM250 に搭載されている SoC（**Rockchip RK3128**）の BootROM �
 
 ### 1. 必要な機材
 * **Pomera DM250**（バッテリーが極端に減っていない状態）
-* **SDカード**（容量1GB〜32GB程度の標準SDまたはmicroSD+変換アダプタ）
+* **SDカード**（容量1GB〜32GBの標準SDまたはmicroSD+変換アダプタ）
 * **PC**（Linux または macOS）
 * **USB Type-C ケーブル**（データ転送対応）
 * **バックアップファイル**（リストア時のみ：ご自身の Pomera のバックアップ `mmcblk0p*.img` または `emmc.img`）
@@ -247,8 +247,27 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 ```
 
 * スクリプトが自動的にデバイスサイズ（約7.3GB）を確認し、PC自身のディスク上書き等の誤操作を防止します。
-* ディレクトリ内にある `mmcblk0p*.img` または `emmc.img` を順番に自動書き戻します。
+* ディレクトリ内にある `mmcblk0p*.img` または `emmc.img` を自動検知して書き戻します。
 * **SHA256 自動ベリファイ機能**: 各パーティションの書き込み直後に、eMMCからデータを読み戻してハッシュ値を照合し、1ビットの狂いもなく書き込めたか（`✅ OK`）をリアルタイムで自動検証します。
+
+#### 💡 リストア時の自動判定優先順位と部分復元（特定のパーティションのみ戻す場合）
+
+`restore_emmc.sh` は、指定したディレクトリ内のファイル構成を自動検出し、以下の優先順位で復元を実行します：
+
+| ディレクトリ内の構成 | 復元の挙動 | 特徴・詳細 |
+| :--- | :--- | :--- |
+| **`emmc.img`（または `mmcblk0.img`）が存在する場合** | **フルRAWイメージ復元が最優先** | ディレクトリ内に個別パーティション（`mmcblk0p*.img`）が同居していても、**`emmc.img` によるディスク丸ごと復元が最優先** され、個別パーティション復元はスキップされます（※ デフォルトの `both` モードでバックアップしたフォルダを指定した場合はこの動作になります）。 |
+| **`emmc.img` がなく、個別パーティション（`mmcblk0p*.img`）のみ存在する場合** | **個別パーティション復元** | 存在する `.img` ファイルのみが、対応する正確なオフセット位置へ順番に書き戻されます。 |
+
+> [!TIP]
+> **🧩 特定のパーティション（辞書やユーザー領域など）のみをピンポイントで復元したい場合**
+> バックアップフォルダ（`emmc.img` と分割ファイルが両方入っているフォルダ）をそのまま指定すると、`emmc.img` の全体復元が優先されてしまいます。
+> **特定のパーティションのみを書き戻したい場合**は、復元したいファイル（例: `mmcblk0p7.img` や `mmcblk0p8.img`）だけを別の作業フォルダ（例: `./partial_restore/`）にコピーし、そのフォルダを指定して実行してください：
+> ```bash
+> mkdir -p ./partial_restore
+> cp ./factory_backup/mmcblk0p8.img ./partial_restore/  # 辞書パーティションのみ復元したい例
+> sudo ./restore_emmc.sh <target_device> ./partial_restore
+> ```
 
 > [!TIP]
 > **⏱️ リストア時のリアルタイム進捗と検証**
@@ -285,6 +304,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 * [`prepare_sdcard.sh`](./prepare_sdcard.sh) : SDカード用 U-Boot UMS ブートローダー生成スクリプト（デフォルト: 安全な Read-Only / `--readwrite` で書き込み許可）
 * [`backup_emmc.sh`](./backup_emmc.sh) : UMSマウントされたeMMCからPCへ完全バックアップ（フルRAW & 27パーティション）を取得するスクリプト
 * [`restore_emmc.sh`](./restore_emmc.sh) : UMSマウントされたeMMCへの安全なdd書き戻し＆自動検証スクリプト
+* [`common.sh`](./common.sh) : クロスプラットフォーム（Linux & macOS）共通ユーティリティライブラリ（アンマウント、ハッシュ計算、パーティションオフセット定義）
 * [`patches/uboot_ums_readonly.patch`](./patches/uboot_ums_readonly.patch) : U-Boot Read-Only UMS パッチ（ライトプロテクト保護）
 * [`patches/uboot_ums_readwrite.patch`](./patches/uboot_ums_readwrite.patch) : U-Boot Read-Write UMS パッチ（書き込み許可＆接続通知）
 

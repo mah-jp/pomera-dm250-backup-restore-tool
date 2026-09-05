@@ -9,6 +9,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Load shared utility library
+if [ -f "$SCRIPT_DIR/common.sh" ]; then
+    # shellcheck source=common.sh
+    source "$SCRIPT_DIR/common.sh"
+else
+    echo "❌ Error: common.sh not found in $SCRIPT_DIR"
+    exit 1
+fi
+
 EMMC_DEV="${1:-}"
 OUT_DIR_ARG="${2:-}"
 DUMP_MODE="${3:-both}"
@@ -21,34 +30,10 @@ case "$DUMP_MODE" in
         ;;
 esac
 
-OS_NAME="$(uname -s)"
-
 echo "=========================================================="
 echo "  Pomera DM250 eMMC Direct Dump / Backup Tool"
 echo "  Host Platform: $OS_NAME ($(uname -m))"
 echo "=========================================================="
-
-# Check for block device list helper
-show_block_devices() {
-    echo "Current external block devices detected on system:"
-    if [ "$OS_NAME" = "Darwin" ]; then
-        local ext_disks
-        ext_disks=$(diskutil list external 2>/dev/null || true)
-        if [ -n "$ext_disks" ]; then
-            echo "$ext_disks"
-        else
-            echo "   (No external disks detected. Make sure Pomera is in UMS mode and connected via USB.)"
-        fi
-    else
-        local ext_disks
-        ext_disks=$(lsblk -d -o NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -E "usb|mmc" || true)
-        if [ -n "$ext_disks" ]; then
-            echo "$ext_disks"
-        else
-            lsblk -e 7 -o NAME,SIZE,TYPE,MODEL,TRAN,MOUNTPOINTS 2>/dev/null || true
-        fi
-    fi
-}
 
 if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; then
     echo "Usage: sudo ./backup_emmc.sh <target_device> [output_directory] [mode]"
@@ -106,14 +91,9 @@ fi
 mkdir -p "$OUT_DIR"
 OUT_DIR_ABS="$(cd "$OUT_DIR" && pwd)"
 
-# Function to ensure output directory and files belong to real user (not root)
-fix_ownership() {
-    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-        chown -R "$SUDO_USER" "$OUT_DIR_ABS" 2>/dev/null || true
-    fi
-}
-trap fix_ownership EXIT INT TERM
-fix_ownership
+# Ensure output directory belongs to real user (not root)
+trap 'fix_file_ownership "$OUT_DIR_ABS"' EXIT INT TERM
+fix_file_ownership "$OUT_DIR_ABS"
 
 echo "Destination Directory: $OUT_DIR_ABS"
 echo "Dump Mode: $DUMP_MODE"
@@ -126,16 +106,8 @@ elif [ "$DUMP_MODE" = "parts" ]; then
 fi
 
 # Safety check: Block device size
-DEV_BYTES=""
-if [ "$OS_NAME" = "Darwin" ]; then
-    DEV_BYTES=$(diskutil info "$EMMC_DEV" 2>/dev/null | awk '/Disk Size:/ {print $5}' | tr -d '()' || true)
-else
-    DEV_BYTES=$( (blockdev --getsize64 "$EMMC_DEV" 2>/dev/null || lsblk -b -n -o SIZE "$EMMC_DEV" 2>/dev/null | head -n1) || true )
-fi
-DEV_GB="Unknown"
-if [ -n "$DEV_BYTES" ] && [[ "$DEV_BYTES" =~ ^[0-9]+$ ]]; then
-    DEV_GB=$(awk -v b="$DEV_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 / 1024 }' 2>/dev/null || echo "Unknown")
-fi
+DEV_BYTES=$(get_device_size_bytes "$EMMC_DEV")
+DEV_GB=$(format_bytes_to_gb "$DEV_BYTES")
 
 echo "Target Device: $EMMC_DEV (Size: approx ${DEV_GB} GB / ${DEV_BYTES:-0} bytes)"
 
@@ -156,10 +128,7 @@ if [ "$OS_NAME" = "Darwin" ]; then
 else
     AVAIL_BYTES=$(df -P -B1 "$OUT_DIR_ABS" | awk 'NR==2 {print $4}')
 fi
-AVAIL_GB="Unknown"
-if [ -n "$AVAIL_BYTES" ] && [[ "$AVAIL_BYTES" =~ ^[0-9]+$ ]]; then
-    AVAIL_GB=$(awk -v b="$AVAIL_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 / 1024 }' 2>/dev/null || echo "Unknown")
-fi
+AVAIL_GB=$(format_bytes_to_gb "$AVAIL_BYTES")
 REQ_BYTES=8589934592 # ~8GB
 if [ "$DUMP_MODE" = "both" ]; then
     REQ_BYTES=17179869184 # ~16GB
@@ -184,116 +153,10 @@ if [ "${CONFIRM:-}" = "n" ] || [ "${CONFIRM:-}" = "N" ]; then
     exit 0
 fi
 
-# Helper to automatically unmount target device volumes (macOS & Linux)
-unmount_target_device() {
-    local dev="$1"
-    if [ "$OS_NAME" = "Darwin" ]; then
-        local disk_node="$dev"
-        if [[ "$dev" =~ ^/dev/rdisk([0-9]+.*)$ ]]; then
-            disk_node="/dev/disk${BASH_REMATCH[1]}"
-        elif [[ "$dev" =~ ^/dev/disk([0-9]+.*)$ ]]; then
-            disk_node="/dev/disk${BASH_REMATCH[1]}"
-        elif [[ "$dev" =~ ^rdisk([0-9]+.*)$ ]]; then
-            disk_node="/dev/disk${BASH_REMATCH[1]}"
-        elif [[ "$dev" =~ ^disk([0-9]+.*)$ ]]; then
-            disk_node="/dev/disk${BASH_REMATCH[1]}"
-        fi
-        
-        # Check if disk or any partitions are mounted
-        if diskutil info "$disk_node" 2>/dev/null | grep -qi "Mounted: *Yes" || mount | grep -q "^$disk_node"; then
-            echo "🔄 Unmounting auto-mounted volumes on $disk_node..."
-            diskutil unmountDisk "$disk_node" 2>/dev/null || true
-        else
-            diskutil unmountDisk "$disk_node" >/dev/null 2>&1 || true
-        fi
-    else
-        # On Linux, unmount any mounted partitions for this block device
-        local mounts
-        mounts=$(lsblk -ln -o MOUNTPOINTS "$dev" 2>/dev/null | grep -v '^$' || true)
-        if [ -n "$mounts" ]; then
-            echo "🔄 Unmounting auto-mounted volumes on $dev..."
-            echo "$mounts" | while read -r mp; do
-                [ -n "$mp" ] && umount "$mp" 2>/dev/null || true
-            done
-        fi
-    fi
-}
-
 # Automatically unmount any active partitions on the target device
 unmount_target_device "$EMMC_DEV"
 
 START_TIME=$(date +%s)
-
-# Partition offset and size lookup functions (in Megabytes, 1024*1024 bytes) - Bash 3.2 / macOS compatible
-get_part_offset() {
-    local name="$1"
-    case "$name" in
-        "dm250-idb.img") echo 0 ;;
-        "mmcblk0p1.img") echo 8 ;;
-        "mmcblk0p2.img") echo 16 ;;
-        "mmcblk0p3.img") echo 28 ;;
-        "mmcblk0p4.img") echo 34 ;;
-        "mmcblk0p5.img") echo 98 ;;
-        "mmcblk0p6.img") echo 610 ;;
-        "mmcblk0p7.img") echo 866 ;;
-        "mmcblk0p8.img") echo 2146 ;;
-        "mmcblk0p9.img") echo 3170 ;;
-        "mmcblk0p10.img") echo 3174 ;;
-        "mmcblk0p11.img") echo 3176 ;;
-        "mmcblk0p12.img") echo 3177 ;;
-        "mmcblk0p13.img") echo 3433 ;;
-        "mmcblk0p14.img") echo 3465 ;;
-        "mmcblk0p15.img") echo 3477 ;;
-        "mmcblk0p16.img") echo 3541 ;;
-        "mmcblk0p17.img") echo 3553 ;;
-        "mmcblk0p18.img") echo 3559 ;;
-        "mmcblk0p19.img") echo 3623 ;;
-        "mmcblk0p20.img") echo 4135 ;;
-        "mmcblk0p21.img") echo 4391 ;;
-        "mmcblk0p22.img") echo 4395 ;;
-        "mmcblk0p23.img") echo 4651 ;;
-        "mmcblk0p24.img") echo 4907 ;;
-        "mmcblk0p25.img") echo 4909 ;;
-        "mmcblk0p26.img") echo 6189 ;;
-        "mmcblk0p27.img") echo 6829 ;;
-        *) echo "" ;;
-    esac
-}
-
-get_part_size() {
-    local name="$1"
-    case "$name" in
-        "dm250-idb.img") echo 4 ;;
-        "mmcblk0p1.img") echo 8 ;;
-        "mmcblk0p2.img") echo 12 ;;
-        "mmcblk0p3.img") echo 6 ;;
-        "mmcblk0p4.img") echo 64 ;;
-        "mmcblk0p5.img") echo 512 ;;
-        "mmcblk0p6.img") echo 256 ;;
-        "mmcblk0p7.img") echo 1280 ;;
-        "mmcblk0p8.img") echo 1024 ;;
-        "mmcblk0p9.img") echo 4 ;;
-        "mmcblk0p10.img") echo 2 ;;
-        "mmcblk0p11.img") echo 1 ;;
-        "mmcblk0p12.img") echo 256 ;;
-        "mmcblk0p13.img") echo 32 ;;
-        "mmcblk0p14.img") echo 12 ;;
-        "mmcblk0p15.img") echo 64 ;;
-        "mmcblk0p16.img") echo 12 ;;
-        "mmcblk0p17.img") echo 6 ;;
-        "mmcblk0p18.img") echo 64 ;;
-        "mmcblk0p19.img") echo 512 ;;
-        "mmcblk0p20.img") echo 256 ;;
-        "mmcblk0p21.img") echo 4 ;;
-        "mmcblk0p22.img") echo 256 ;;
-        "mmcblk0p23.img") echo 256 ;;
-        "mmcblk0p24.img") echo 2 ;;
-        "mmcblk0p25.img") echo 1280 ;;
-        "mmcblk0p26.img") echo 640 ;;
-        "mmcblk0p27.img") echo 0 ;; # 0 means dump until end of device
-        *) echo "" ;;
-    esac
-}
 
 # Monitor background dump file size and print fraction progress, speed, elapsed, and ETA
 monitor_dump_progress() {
@@ -330,8 +193,13 @@ monitor_dump_progress() {
                 "$cur_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str"
         fi
     done
-    wait "$target_pid" || true
+    local exit_code=0
+    wait "$target_pid" || exit_code=$?
     echo ""
+    if [ "$exit_code" -ne 0 ]; then
+        echo "❌ Error: Background dump process (PID $target_pid) failed with exit code $exit_code."
+        return "$exit_code"
+    fi
 }
 
 # Step 1: Full RAW eMMC Dump (if mode is 'both' or 'raw')
@@ -342,7 +210,7 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "raw" ]; then
     echo "Reading from $EMMC_DEV (approx ${DEV_GB} GB)..."
     
     STEP1_START=$(date +%s)
-    dd if="$EMMC_DEV" of="$FULL_IMG" bs=4M conv=sync,noerror status=none &
+    dd if="$EMMC_DEV" of="$FULL_IMG" bs=4M status=none &
     DD_PID=$!
     
     TARGET_TOTAL_BYTES="${DEV_BYTES:-7818182656}"
@@ -368,7 +236,7 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
 
     # Extract IDB (First 4MB / 8192 sectors)
     echo -n "   [IDB] Extracting dm250-idb.img (4MB)... "
-    dd if="$SRC_INPUT" of="$OUT_DIR_ABS/dm250-idb.img" bs=512 count=8192 conv=sync,noerror status=none
+    dd if="$SRC_INPUT" of="$OUT_DIR_ABS/dm250-idb.img" bs=512 count=8192 status=none
     echo "✅ Done"
 
     # Extract partitions 1 through 27
@@ -384,11 +252,11 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
                 if [ "$SRC_INPUT" = "$EMMC_DEV" ] && [ "$size" -ge 64 ]; then
                     echo ""
                     part_start=$(date +%s)
-                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" conv=sync,noerror status=none &
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" status=none &
                     part_pid=$!
                     monitor_dump_progress "$part_pid" "$out_file" "$((size * 1048576))" "$part_start"
                 else
-                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" conv=sync,noerror status=none
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" count="$size" status=none
                     echo "✅ Done"
                 fi
             else
@@ -396,12 +264,12 @@ if [ "$DUMP_MODE" = "both" ] || [ "$DUMP_MODE" = "parts" ]; then
                 if [ "$SRC_INPUT" = "$EMMC_DEV" ]; then
                     echo ""
                     part_start=$(date +%s)
-                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" conv=sync,noerror status=none &
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" status=none &
                     part_pid=$!
                     rem_est_bytes=657457152 # ~627MB remainder
                     monitor_dump_progress "$part_pid" "$out_file" "$rem_est_bytes" "$part_start"
                 else
-                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" conv=sync,noerror status=none
+                    dd if="$SRC_INPUT" of="$out_file" bs=1M skip="$offset" status=none
                     echo "✅ Done"
                 fi
             fi
@@ -444,11 +312,8 @@ done
 if [ ${#HASH_FILES[@]} -gt 0 ]; then
     for img in "${HASH_FILES[@]}"; do
         echo -n "   Hashing $img... "
-        if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$img" >> sha256sum.txt
-        else
-            shasum -a 256 "$img" >> sha256sum.txt
-        fi
+        hash_val=$(calc_file_sha256 "$img")
+        echo "$hash_val  $img" >> sha256sum.txt
         echo "✅"
     done
 fi
@@ -504,9 +369,7 @@ MINUTES=$((ELAPSED / 60))
 SECONDS=$((ELAPSED % 60))
 
 # Restore directory/file ownership to regular user if run via sudo
-if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-    chown -R "$SUDO_USER" "$OUT_DIR_ABS" 2>/dev/null || true
-fi
+fix_file_ownership "$OUT_DIR_ABS"
 
 echo ""
 echo "=========================================================="

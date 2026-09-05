@@ -9,36 +9,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Load shared utility library
+if [ -f "$SCRIPT_DIR/common.sh" ]; then
+    # shellcheck source=common.sh
+    source "$SCRIPT_DIR/common.sh"
+else
+    echo "❌ Error: common.sh not found in $SCRIPT_DIR"
+    exit 1
+fi
+
 EMMC_DEV="${1:-}"
 IMG_DIR_ARG="${2:-}"
 
-OS_NAME="$(uname -s)"
+# Temporary files and cleanup trap
+TEMP_HASH_FILE="/tmp/emmc_verify_hash.$$"
+cleanup() {
+    rm -f "$TEMP_HASH_FILE" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 echo "=========================================================="
 echo "  Pomera DM250 eMMC Direct Restore Tool (with Verify)"
 echo "  Host Platform: $OS_NAME ($(uname -m))"
 echo "=========================================================="
-
-show_block_devices() {
-    echo "Current external block devices detected on system:"
-    if [ "$OS_NAME" = "Darwin" ]; then
-        local ext_disks
-        ext_disks=$(diskutil list external 2>/dev/null || true)
-        if [ -n "$ext_disks" ]; then
-            echo "$ext_disks"
-        else
-            echo "   (No external disks detected. Make sure Pomera is in UMS mode and connected via USB.)"
-        fi
-    else
-        local ext_disks
-        ext_disks=$(lsblk -d -o NAME,SIZE,MODEL,TRAN 2>/dev/null | grep -E "usb|mmc" || true)
-        if [ -n "$ext_disks" ]; then
-            echo "$ext_disks"
-        else
-            lsblk -e 7 -o NAME,SIZE,TYPE,MODEL,TRAN,MOUNTPOINTS 2>/dev/null || true
-        fi
-    fi
-}
 
 if [ -z "$EMMC_DEV" ] || [ "$EMMC_DEV" = "-h" ] || [ "$EMMC_DEV" = "--help" ]; then
     echo "Usage: sudo ./restore_emmc.sh <target_device> [image_directory]"
@@ -98,16 +91,8 @@ fi
 echo "Source Image Directory: $IMG_DIR"
 
 # Safety check: Block device size
-DEV_BYTES=""
-if [ "$OS_NAME" = "Darwin" ]; then
-    DEV_BYTES=$(diskutil info "$EMMC_DEV" 2>/dev/null | awk '/Disk Size:/ {print $5}' | tr -d '()' || true)
-else
-    DEV_BYTES=$( (blockdev --getsize64 "$EMMC_DEV" 2>/dev/null || lsblk -b -n -o SIZE "$EMMC_DEV" 2>/dev/null | head -n1) || true )
-fi
-DEV_GB="Unknown"
-if [ -n "$DEV_BYTES" ] && [[ "$DEV_BYTES" =~ ^[0-9]+$ ]]; then
-    DEV_GB=$(awk -v b="$DEV_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 / 1024 }' 2>/dev/null || echo "Unknown")
-fi
+DEV_BYTES=$(get_device_size_bytes "$EMMC_DEV")
+DEV_GB=$(format_bytes_to_gb "$DEV_BYTES")
 
 echo "Target Device: $EMMC_DEV (Size: approx ${DEV_GB} GB / ${DEV_BYTES:-0} bytes)"
 
@@ -132,42 +117,7 @@ if [ "${CONFIRM:-}" != "yes" ] && [ "${CONFIRM:-}" != "YES" ]; then
 fi
 
 # Derive disk node for macOS unmounting (/dev/diskN)
-EMMC_DISK_NODE="$EMMC_DEV"
-if [ "$OS_NAME" = "Darwin" ]; then
-    if [[ "$EMMC_DEV" =~ ^/dev/rdisk([0-9]+.*)$ ]]; then
-        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
-    elif [[ "$EMMC_DEV" =~ ^/dev/disk([0-9]+.*)$ ]]; then
-        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
-    elif [[ "$EMMC_DEV" =~ ^rdisk([0-9]+.*)$ ]]; then
-        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
-    elif [[ "$EMMC_DEV" =~ ^disk([0-9]+.*)$ ]]; then
-        EMMC_DISK_NODE="/dev/disk${BASH_REMATCH[1]}"
-    fi
-fi
-
-# Helper to automatically unmount target device volumes (macOS & Linux)
-unmount_target_device() {
-    local dev="$1"
-    if [ "$OS_NAME" = "Darwin" ]; then
-        # Check if disk or any partitions are mounted
-        if diskutil info "$EMMC_DISK_NODE" 2>/dev/null | grep -qi "Mounted: *Yes" || mount | grep -q "^$EMMC_DISK_NODE"; then
-            echo "🔄 Unmounting auto-mounted volumes on $EMMC_DISK_NODE..."
-            diskutil unmountDisk "$EMMC_DISK_NODE" 2>/dev/null || true
-        else
-            diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true
-        fi
-    else
-        # On Linux, unmount any mounted partitions for this block device
-        local mounts
-        mounts=$(lsblk -ln -o MOUNTPOINTS "$dev" 2>/dev/null | grep -v '^$' || true)
-        if [ -n "$mounts" ]; then
-            echo "🔄 Unmounting auto-mounted volumes on $dev..."
-            echo "$mounts" | while read -r mp; do
-                [ -n "$mp" ] && umount "$mp" 2>/dev/null || true
-            done
-        fi
-    fi
-}
+EMMC_DISK_NODE="$(resolve_disk_node "$EMMC_DEV")"
 
 # Automatically unmount any active partitions on the target device
 unmount_target_device "$EMMC_DEV"
@@ -196,43 +146,32 @@ safe_dd_write() {
     return 1
 }
 
-# Portable Checksum & Write Helpers
-calc_file_sha256() {
-    local file="$1"
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$file" | awk '{print $1}'
-    else
-        shasum -a 256 "$file" | awk '{print $1}'
-    fi
-}
-
-calc_stream_sha256() {
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum | awk '{print $1}'
-    else
-        shasum -a 256 | awk '{print $1}'
-    fi
-}
-
 # Safely read slice from eMMC device and calculate sha256 (handles SIGPIPE / pipefail and reads exact block count)
 calc_emmc_hash() {
     local dev="$1"
     local offset_mb="$2"
     local size_bytes="$3"
-    local bs_mb=1
-    local count_blocks=$(( (size_bytes + 1048576 - 1) / 1048576 ))
     (
         set +e +o pipefail 2>/dev/null || true
         if [ "$OS_NAME" = "Darwin" ]; then
             diskutil unmountDisk "$EMMC_DISK_NODE" >/dev/null 2>&1 || true
         fi
+        # Optimize block size: use 4M blocks if offset is 4MB-aligned (especially full image at offset 0), fallback to 1M
         if [ "$offset_mb" -eq 0 ]; then
-            dd if="$dev" bs=1M count="$count_blocks" 2>/dev/null | head -c "$size_bytes" | calc_stream_sha256
+            local count_4m=$(( (size_bytes + 4194303) / 4194304 ))
+            dd if="$dev" bs=4M count="$count_4m" 2>/dev/null | head -c "$size_bytes" | calc_stream_sha256
+        elif [ $((offset_mb % 4)) -eq 0 ]; then
+            local skip_4m=$((offset_mb / 4))
+            local count_4m=$(( (size_bytes + 4194303) / 4194304 ))
+            dd if="$dev" bs=4M skip="$skip_4m" count="$count_4m" 2>/dev/null | head -c "$size_bytes" | calc_stream_sha256
         else
-            dd if="$dev" bs=1M skip="$offset_mb" count="$count_blocks" 2>/dev/null | head -c "$size_bytes" | calc_stream_sha256
+            local count_1m=$(( (size_bytes + 1048575) / 1048576 ))
+            dd if="$dev" bs=1M skip="$offset_mb" count="$count_1m" 2>/dev/null | head -c "$size_bytes" | calc_stream_sha256
         fi
     )
 }
+
+LAST_WRITE_SPEED_MB_S=0
 
 chunk_write_with_progress() {
     local in_file="$1"
@@ -281,6 +220,7 @@ chunk_write_with_progress() {
         printf "\r   Progress: [ %d / %d MB ] (%d%%) | Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%s" \
             "$written_mb" "$total_mb" "$pct" "$speed_mb_s" "$el_m" "$el_s" "$eta_str"
     done
+    LAST_WRITE_SPEED_MB_S="$speed_mb_s"
     echo ""
 }
 
@@ -332,15 +272,20 @@ if [ -n "$FULL_IMG" ]; then
     chunk_write_with_progress "$FULL_IMG" "$EMMC_DEV" 0
     echo ""
     
-    echo "🔍 Verifying checksum for full image (reading from $EMMC_DEV)..."
+    echo "🔍 Verifying checksum for full image (reading from $EMMC_DEV with 4MB blocks)..."
     V_START=$(date +%s)
     ORIG_HASH=$(calc_file_sha256 "$FULL_IMG")
     
-    TEMP_HASH_FILE="/tmp/emmc_verify_hash.$$"
     (
         calc_emmc_hash "$EMMC_DEV" 0 "$IMG_SIZE" > "$TEMP_HASH_FILE" 2>/dev/null
     ) &
     HASH_PID=$!
+    
+    # Estimate read speed based on measured write speed (reads on USB 2.0 eMMC are typically >= write speed, approx 18-24 MB/s)
+    est_speed_mb_s="${LAST_WRITE_SPEED_MB_S:-20}"
+    if [ "$est_speed_mb_s" -lt 15 ]; then
+        est_speed_mb_s=18
+    fi
     
     while kill -0 "$HASH_PID" 2>/dev/null; do
         sleep 2
@@ -348,15 +293,15 @@ if [ -n "$FULL_IMG" ]; then
         EL=$((NOW - V_START))
         EL_M=$((EL / 60))
         EL_S=$((EL % 60))
-        EST_READ_MB=$((EL * 8))
+        EST_READ_MB=$((EL * est_speed_mb_s))
         [ "$EST_READ_MB" -gt "$IMG_MB" ] && EST_READ_MB="$IMG_MB"
         PCT=$((EST_READ_MB * 100 / IMG_MB))
         REMAIN_MB=$((IMG_MB > EST_READ_MB ? IMG_MB - EST_READ_MB : 0))
-        ETA_SEC=$((REMAIN_MB / 8))
+        ETA_SEC=$((REMAIN_MB / est_speed_mb_s))
         ETA_M=$((ETA_SEC / 60))
         ETA_S=$((ETA_SEC % 60))
-        printf "\r   Verifying: [ ~%d / %d MB ] (~%d%%) | Speed: ~8 MB/s | Elapsed: %02d:%02d | ETA: ~%02d:%02d" \
-            "$EST_READ_MB" "$IMG_MB" "$PCT" "$EL_M" "$EL_S" "$ETA_M" "$ETA_S"
+        printf "\r   Verifying: [ ~%d / %d MB ] (~%d%%) | Est. Speed: ~%d MB/s | Elapsed: %02d:%02d | ETA: ~%02d:%02d" \
+            "$EST_READ_MB" "$IMG_MB" "$PCT" "$est_speed_mb_s" "$EL_M" "$EL_S" "$ETA_M" "$ETA_S"
     done
     wait "$HASH_PID" || true
     echo ""
@@ -409,42 +354,6 @@ for i in $(seq 1 27); do
     fi
 done
 TOTAL_RESTORE_MB=$((TOTAL_RESTORE_BYTES / 1048576))
-
-# Function to get partition offset (in Megabytes, 1024*1024 bytes) - Bash 3.2 / macOS compatible
-get_part_offset() {
-    local name="$1"
-    case "$name" in
-        "dm250-idb.img") echo 0 ;;
-        "mmcblk0p1.img") echo 8 ;;
-        "mmcblk0p2.img") echo 16 ;;
-        "mmcblk0p3.img") echo 28 ;;
-        "mmcblk0p4.img") echo 34 ;;
-        "mmcblk0p5.img") echo 98 ;;
-        "mmcblk0p6.img") echo 610 ;;
-        "mmcblk0p7.img") echo 866 ;;
-        "mmcblk0p8.img") echo 2146 ;;
-        "mmcblk0p9.img") echo 3170 ;;
-        "mmcblk0p10.img") echo 3174 ;;
-        "mmcblk0p11.img") echo 3176 ;;
-        "mmcblk0p12.img") echo 3177 ;;
-        "mmcblk0p13.img") echo 3433 ;;
-        "mmcblk0p14.img") echo 3465 ;;
-        "mmcblk0p15.img") echo 3477 ;;
-        "mmcblk0p16.img") echo 3541 ;;
-        "mmcblk0p17.img") echo 3553 ;;
-        "mmcblk0p18.img") echo 3559 ;;
-        "mmcblk0p19.img") echo 3623 ;;
-        "mmcblk0p20.img") echo 4135 ;;
-        "mmcblk0p21.img") echo 4391 ;;
-        "mmcblk0p22.img") echo 4395 ;;
-        "mmcblk0p23.img") echo 4651 ;;
-        "mmcblk0p24.img") echo 4907 ;;
-        "mmcblk0p25.img") echo 4909 ;;
-        "mmcblk0p26.img") echo 6189 ;;
-        "mmcblk0p27.img") echo 6829 ;;
-        *) echo "" ;;
-    esac
-}
 
 WRITTEN_RESTORE_BYTES=0
 TOTAL_RESTORE_START=$(date +%s)

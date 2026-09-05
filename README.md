@@ -246,8 +246,27 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 ```
 
 * Automatically verifies target device size (~7.3 GB) to prevent accidental overwrites of host drives.
-* Writes `mmcblk0p*.img` partitions or `emmc.img` sequentially.
+* Automatically detects and restores either `emmc.img` or individual `mmcblk0p*.img` partitions.
 * **Real-time SHA256 Verification**: Reads back each written partition immediately, compares hash sums against the source, and verifies data integrity (`✅ OK`) in real time down to the single bit.
+
+#### 💡 Restoration Auto-Detection Priority & Partial Restore
+
+`restore_emmc.sh` inspects files inside the target directory and applies the following precedence:
+
+| Directory Contents | Restoration Behavior | Description & Notes |
+| :--- | :--- | :--- |
+| **`emmc.img` (or `mmcblk0.img`) is present** | **Full RAW Image Restore (Highest Priority)** | Even if individual partition files (`mmcblk0p*.img`) exist in the same directory, **restoring the full raw disk image `emmc.img` takes precedence**, and individual partition restoration is skipped. (This is the default when passing a backup folder created with `both` mode). |
+| **Only partition images (`mmcblk0p*.img`) exist (no `emmc.img`)** | **Individual Partition Restore** | Only the present `.img` files are flashed sequentially to their corresponding exact sector offsets. |
+
+> [!TIP]
+> **🧩 Restoring Specific Partitions Only (e.g. Dictionary or User Storage)**
+> If you pass a folder containing both `emmc.img` and split partition files, full disk restoration will execute by default.
+> **To restore only specific partitions**, copy the desired files (e.g., `mmcblk0p7.img` or `mmcblk0p8.img`) to a separate temporary directory (e.g., `./partial_restore/`) and run `restore_emmc.sh` against that directory:
+> ```bash
+> mkdir -p ./partial_restore
+> cp ./factory_backup/mmcblk0p8.img ./partial_restore/  # Example: restore dictionary partition only
+> sudo ./restore_emmc.sh <target_device> ./partial_restore
+> ```
 
 > [!TIP]
 > **⏱️ Real-time Progress & Verification**
@@ -284,6 +303,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 * [`prepare_sdcard.sh`](./prepare_sdcard.sh): Automated build script for U-Boot UMS SD card bootloader (Default: Read-Only / `--readwrite` for restore)
 * [`backup_emmc.sh`](./backup_emmc.sh): Backup tool for dumping eMMC to PC (Full RAW & 27 individual partitions)
 * [`restore_emmc.sh`](./restore_emmc.sh): Safe restore tool with real-time SHA256 read-back verification
+* [`common.sh`](./common.sh): Cross-platform (Linux & macOS) shared utility library (unmount handlers, SHA256 helpers, partition offsets)
 * [`patches/uboot_ums_readonly.patch`](./patches/uboot_ums_readonly.patch): Patch for U-Boot Read-Only UMS mode (hardware write-protect)
 * [`patches/uboot_ums_readwrite.patch`](./patches/uboot_ums_readwrite.patch): Patch for U-Boot Read-Write UMS mode with connection notify
 
