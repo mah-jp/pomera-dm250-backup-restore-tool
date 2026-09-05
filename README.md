@@ -35,7 +35,7 @@ The **Rockchip RK3128** SoC inside the Pomera DM250 features a hardware BootROM 
 * **SD Card** (1 GB to 32 GB standard SD or microSD with adapter)
 * **PC** (Linux or macOS)
 * **USB Type-C Cable** (with data transfer capability)
-* **Backup Files** (for restore only: `mmcblk0p*.img` or `emmc.img` backup of your Pomera)
+* **Backup Files** (for restore only: `emmc.img`, or `dm250-idb.img` + `mmcblk0p1.img`–`mmcblk0p27.img` backup of your Pomera)
 
 ### 2. PC Build Dependencies Installation
 
@@ -256,7 +256,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 ```
 
 * Automatically verifies target device size (~7.3 GB) to prevent accidental overwrites of host drives.
-* Automatically detects and restores either `emmc.img` or individual `mmcblk0p*.img` partitions.
+* Automatically detects and restores either `emmc.img` or `dm250-idb.img` and individual `mmcblk0p*.img` partitions.
 * **Real-time SHA256 Verification**: Reads back each written partition immediately, compares hash sums against the source, and verifies data integrity (`✅ OK`) in real time down to the single bit.
 
 #### 💡 Restoration Auto-Detection Priority & Partial Restore
@@ -265,8 +265,8 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 | Directory Contents | Restoration Behavior | Description & Notes |
 | :--- | :--- | :--- |
-| **`emmc.img` (or `mmcblk0.img`) is present** | **Full RAW Image Restore (Highest Priority)** | Even if individual partition files (`mmcblk0p*.img`) exist in the same directory, **restoring the full raw disk image `emmc.img` takes precedence**, and individual partition restoration is skipped. (This is the default when passing a backup folder created with `both` mode). |
-| **Only partition images (`mmcblk0p*.img`) exist (no `emmc.img`)** | **Individual Partition Restore** | Only the present `.img` files are flashed sequentially to their corresponding exact sector offsets. |
+| **`emmc.img` (or `mmcblk0.img`) is present** | **Full RAW Image Restore (Highest Priority)** | Even if individual partition files (`mmcblk0p*.img` or `dm250-idb.img`) exist in the same directory, **restoring the full raw disk image `emmc.img` takes precedence**, and individual partition restoration is skipped. (This is the default when passing a backup folder created with `both` mode). |
+| **No `emmc.img`, but individual images exist** | **IDB + Individual Partition Restore** | If `dm250-idb.img` is present, it is restored first to sector 0 (4 MB), followed sequentially by any existing `mmcblk0p*.img` files at their exact sector offsets. |
 
 > [!TIP]
 > **🧩 Restoring Specific Partitions Only (e.g. Dictionary or User Storage)**
@@ -304,14 +304,14 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 | **`/dev/sdX` or `/dev/rdiskN` does not appear on PC after connecting USB** | • Powering on with the USB cable already plugged in may prevent UMS initialization. Follow the sequence: **"Power ON with USB unplugged → Wait for LCD banner → Connect USB"**.<br>• Check that the SD card is fully inserted. |
 | **Reconnecting USB cable is not recognized** | • Due to Rockchip USB controller hardware characteristics, re-plugging USB while in UMS idle mode is not auto-detected. **Hold Power button 10–11s to turn OFF, then 3–4s to power on again.** |
 | **Device does not power on / Screen stays black** | • Battery may be fully drained. Connect a USB charger and let it charge before retrying.<br>• Hold Power button for 10–11 seconds for hard reset, then try turning on again (3–4s). |
-| **Backup files not found during restore** | • Place `mmcblk0p1.img`–`mmcblk0p27.img` or `emmc.img` inside the `restore_file/` directory, or pass the backup directory path as an argument (e.g. `./restore_emmc.sh <target_device> ./backup_file` where `<target_device>` is `/dev/sdX` or `/dev/rdiskN`). |
+| **Backup files not found during restore** | • Place `emmc.img` or `dm250-idb.img` / `mmcblk0p1.img`–`mmcblk0p27.img` inside the `restore_file/` directory, or pass the backup directory path as an argument (e.g. `./restore_emmc.sh <target_device> ./backup_file` where `<target_device>` is `/dev/sdX` or `/dev/rdiskN`). |
 
 ---
 
 ## 📁 Repository Contents & Scripts
 
 * [`prepare_sdcard.sh`](./prepare_sdcard.sh): Automated build script for U-Boot UMS SD card bootloader (Default: Read-Only / `--readwrite` for restore)
-* [`backup_emmc.sh`](./backup_emmc.sh): Backup tool for dumping eMMC to PC (Full RAW & 27 individual partitions)
+* [`backup_emmc.sh`](./backup_emmc.sh): Backup tool for dumping eMMC to PC (Full RAW & IDB + 27 individual partitions)
 * [`restore_emmc.sh`](./restore_emmc.sh): Safe restore tool with real-time SHA256 read-back verification
 * [`common.sh`](./common.sh): Cross-platform (Linux & macOS) shared utility library (unmount handlers, SHA256 helpers, partition offsets)
 * [`patches/uboot_ums_readonly.patch`](./patches/uboot_ums_readonly.patch): Patch for U-Boot Read-Only UMS mode (hardware write-protect)

@@ -428,7 +428,7 @@ sync
 echo ""
 echo "=========================================================="
 if [ "$RESTORED_COUNT" -eq 0 ]; then
-    echo "⚠️ Error: No backup files (mmcblk0p*.img or emmc.img) found in '$IMG_DIR'."
+    echo "⚠️ Error: No backup files (emmc.img, dm250-idb.img, or mmcblk0p*.img) found in '$IMG_DIR'."
     echo "Please place your backup files in '$IMG_DIR' or specify the directory as second argument."
     exit 1
 elif [ "$VERIFY_ERRORS" -gt 0 ]; then

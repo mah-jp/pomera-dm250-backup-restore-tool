@@ -35,7 +35,7 @@ Pomera DM250 に搭載されている SoC（**Rockchip RK3128**）の BootROM �
 * **SDカード**（容量1GB〜32GBの標準SDまたはmicroSD+変換アダプタ）
 * **PC**（Linux または macOS）
 * **USB Type-C ケーブル**（データ転送対応）
-* **バックアップファイル**（リストア時のみ：ご自身の Pomera のバックアップ `mmcblk0p*.img` または `emmc.img`）
+* **バックアップファイル**（リストア時のみ：ご自身の Pomera のバックアップ `emmc.img`、または `dm250-idb.img` ＋ `mmcblk0p1.img`〜`mmcblk0p27.img`）
 
 ### 2. PC側のビルド依存パッケージの導入
 
@@ -256,7 +256,7 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 ```
 
 * スクリプトが自動的にデバイスサイズ（約7.3GB）を確認し、PC自身のディスク上書き等の誤操作を防止します。
-* ディレクトリ内にある `mmcblk0p*.img` または `emmc.img` を自動検知して書き戻します。
+* ディレクトリ内にある `emmc.img`、または `dm250-idb.img` と各個別パーティション（`mmcblk0p*.img`）を自動検知して書き戻します。
 * **SHA256 自動ベリファイ機能**: 各パーティションの書き込み直後に、eMMCからデータを読み戻してハッシュ値を照合し、1ビットの狂いもなく書き込めたか（`✅ OK`）をリアルタイムで自動検証します。
 
 #### 💡 リストア時の自動判定優先順位と部分復元（特定のパーティションのみ戻す場合）
@@ -265,8 +265,8 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 
 | ディレクトリ内の構成 | 復元の挙動 | 特徴・詳細 |
 | :--- | :--- | :--- |
-| **`emmc.img`（または `mmcblk0.img`）が存在する場合** | **フルRAWイメージ復元が最優先** | ディレクトリ内に個別パーティション（`mmcblk0p*.img`）が同居していても、**`emmc.img` によるディスク丸ごと復元が最優先** され、個別パーティション復元はスキップされます（※ デフォルトの `both` モードでバックアップしたフォルダを指定した場合はこの動作になります）。 |
-| **`emmc.img` がなく、個別パーティション（`mmcblk0p*.img`）のみ存在する場合** | **個別パーティション復元** | 存在する `.img` ファイルのみが、対応する正確なオフセット位置へ順番に書き戻されます。 |
+| **`emmc.img`（または `mmcblk0.img`）が存在する場合** | **フルRAWイメージ復元が最優先** | ディレクトリ内に個別パーティション（`mmcblk0p*.img` や `dm250-idb.img`）が同居していても、**`emmc.img` によるディスク丸ごと復元が最優先** され、個別パーティション復元はスキップされます（※ デフォルトの `both` モードでバックアップしたフォルダを指定した場合はこの動作になります）。 |
+| **`emmc.img` がなく、個別イメージが存在する場合** | **IDB ＋ 個別パーティション復元** | `dm250-idb.img` が存在する場合は先頭の IDB（セクタ0〜4MB）として復元され、続いて存在する `mmcblk0p*.img` が対応する正確なオフセット位置へ順番に書き戻されます。 |
 
 > [!TIP]
 > **🧩 特定のパーティション（辞書やユーザー領域など）のみをピンポイントで復元したい場合**
@@ -304,14 +304,14 @@ sudo ./restore_emmc.sh <target_device> ./factory_backup
 | **PCにUSB接続しても `/dev/sdX`（`/dev/rdiskN`）が現れない** | ・USBケーブルを挿したまま電源を入れるとUMSが開始されない場合があります。**「USBを抜いた状態で電源ON → 画面点灯後にUSB挿入」** の順序を守ってください。<br>・SDカードが正しく奥まで挿入されているか確認してください。 |
 | **USBケーブルを挿し直しても認識されない** | ・Rockchip USBコントローラのハードウェア仕様により、UMS待機中にケーブルを抜いた後の再挿入は自動認識されません。**一度 Pomera の電源ボタンを10〜11秒長押ししてOFFにし、再度3〜4秒長押しして入れ直してください**。 |
 | **電源が入らない・画面がつかない** | ・バッテリーが完全に放電している可能性があります。USB充電器にしばらく接続して充電してから再試行してください。<br>・電源ボタンを10〜11秒長押しして強制完全オフにしてから、再度3〜4秒長押しでお試しください。 |
-| **バックアップファイルが見つからない** | ・`mmcblk0p1.img` 〜 `mmcblk0p27.img` または `emmc.img` を `restore_file/` ディレクトリに配置するか、引数でバックアップ先ディレクトリを指定してください（例: `./restore_emmc.sh <target_device> ./backup_file` ※Linux: `/dev/sdX`, macOS: `/dev/rdiskN`）。 |
+| **バックアップファイルが見つからない** | ・`emmc.img` または `dm250-idb.img` / `mmcblk0p1.img` 〜 `mmcblk0p27.img` を `restore_file/` ディレクトリに配置するか、引数でバックアップ先ディレクトリを指定してください（例: `./restore_emmc.sh <target_device> ./backup_file` ※Linux: `/dev/sdX`, macOS: `/dev/rdiskN`）。 |
 
 ---
 
 ## 📁 スクリプト構成一覧
 
 * [`prepare_sdcard.sh`](./prepare_sdcard.sh) : SDカード用 U-Boot UMS ブートローダー生成スクリプト（デフォルト: 安全な Read-Only / `--readwrite` で書き込み許可）
-* [`backup_emmc.sh`](./backup_emmc.sh) : UMSマウントされたeMMCからPCへ完全バックアップ（フルRAW & 27パーティション）を取得するスクリプト
+* [`backup_emmc.sh`](./backup_emmc.sh) : UMSマウントされたeMMCからPCへ完全バックアップ（フルRAW & IDB + 27パーティション）を取得するスクリプト
 * [`restore_emmc.sh`](./restore_emmc.sh) : UMSマウントされたeMMCへの安全なdd書き戻し＆自動検証スクリプト
 * [`common.sh`](./common.sh) : クロスプラットフォーム（Linux & macOS）共通ユーティリティライブラリ（アンマウント、ハッシュ計算、パーティションオフセット定義）
 * [`patches/uboot_ums_readonly.patch`](./patches/uboot_ums_readonly.patch) : U-Boot Read-Only UMS パッチ（ライトプロテクト保護）
