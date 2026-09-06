@@ -75,11 +75,11 @@ The script handles everything interactively and automatically, from compiling th
 
 ```bash
 # [Default / Recommended for Backup: Safe READ-ONLY Mode]
-# Hardware write-protected against accidental PC overwrites.
+# Hardware write-protected against accidental PC overwrites (-r, --ro also accepted).
 ./prepare_sdcard.sh
 
 # [Restore Only: READ-WRITE Mode]
-# Required only when flashing/restoring backup images back to Pomera.
+# Required only when flashing/restoring backup images back to Pomera (-w, --rw also accepted).
 ./prepare_sdcard.sh --readwrite
 ```
 
@@ -99,7 +99,7 @@ The script handles everything interactively and automatically, from compiling th
 > **🛡️ Safety-First Read-Only Default Specification**
 > * Running `./prepare_sdcard.sh` without options builds and flashes a **hardware write-protected** bootloader.
 > * Even if you accidentally run `dd` to the Pomera disk or click "Initialize" on macOS, **the Pomera firmware blocks all writes, keeping your device data completely safe**.
-> * When you need to flash/restore backup images back to Pomera, build the SD card with `--readwrite` (or `--rw`).
+> * When you need to flash/restore backup images back to Pomera, build the SD card with `--readwrite` (or `--rw`, `-w`).
 
 <details>
 <summary><b>💡 Manual Raw Sector Flashing with dd (Optional / Advanced)</b></summary>
@@ -147,7 +147,12 @@ sync
 2. **Leave the USB cable disconnected.**
 3. **Press and hold only the [Power Button] for 3–4 seconds** to turn on the device (when the SD card is inserted, it boots from the SD card automatically).
    * *(To force power off or perform a hard reset, **press and hold the Power Button for 10–11 seconds**).*
-4. The backlight turns on, and the LCD displays the mode-specific UMS startup banner (UMS mode launches automatically after a 3-second countdown):
+4. The backlight turns on, initially displaying U-Boot's 3-second autoboot countdown:
+   ```text
+   Hit any key to stop autoboot:  3 ... 2 ... 1
+   ```
+   * *(Pressing a key during this countdown enters the interactive U-Boot `=>` prompt; otherwise, autoboot proceeds automatically).*
+   * After 3 seconds, the screen refreshes to show the mode-specific UMS banner and launches UMS mode:
 
 ```text
 =================================================
@@ -162,10 +167,12 @@ UMS: LUN 0, dev 0, hwpart 0, sector 0x0, count 0x...
 ```
 
 5. **Connect the Pomera to your PC with a USB Type-C cable.**
-   * When the USB connection is established, an on-screen notification appears:
+   * When the USB connection is established, an on-screen notification appears based on your SD card mode:
    ```text
-   >>> [USB] Connected to Host PC (eMMC Ready) <<<
+   >>> [USB] Connected to Host PC (eMMC Ready - READ-ONLY) <<<
    ```
+   *(Note: Cards built with `--readwrite` will display `(eMMC Ready - READ-WRITE)`).*
+   *(Note: Unplugging the USB cable displays `>>> [USB] Disconnected (Reboot Pomera to reconnect) <<<`. Reboot the Pomera if you need to reconnect).*
 
 > [!IMPORTANT]
 > **🍏 Critical Notes for macOS Users ("Ignore" Dialog & Auto-Suspend Prevention)**
@@ -243,17 +250,20 @@ With this tool, you can switch between the factory Pomera firmware and custom OS
 > [!IMPORTANT]
 > **⚠️ Restore Prerequisite: Read-Write SD Card Required**
 > SD cards prepared with default settings are **Read-Only (write-protected)** for backup safety.
-> Before restoring, build and insert an SD card configured in Read-Write mode: **`./prepare_sdcard.sh --readwrite` (or `--rw`)**.
+> Before restoring, build and insert an SD card configured in Read-Write mode: **`./prepare_sdcard.sh --readwrite` (or `--rw`, `-w`)**.
 
 Run the restore script from your PC *(Replace `<target_device>` with **Linux: `/dev/sdX`**, **macOS: `/dev/rdiskN`**)*:
 
 ```bash
-# Default (Restore from images in ./restore_file/ directory)
-sudo ./restore_emmc.sh <target_device>
-
-# Restore from a specific backup directory
+# Restore from a specific backup directory (Recommended)
 sudo ./restore_emmc.sh <target_device> ./factory_backup
+
+# Default (Restores from ./restore_file/ directory when second argument is omitted)
+sudo ./restore_emmc.sh <target_device>
 ```
+
+> [!NOTE]
+> When `backup_emmc.sh` is run without specifying an output directory, it defaults to `./backup_file/`. To restore from that backup, specify it explicitly as `sudo ./restore_emmc.sh <target_device> ./backup_file` or place your image files into `./restore_file/`.
 
 * Automatically verifies target device size (~7.3 GB) to prevent accidental overwrites of host drives.
 * Automatically detects and restores either `emmc.img` or `dm250-idb.img` and individual `mmcblk0p*.img` partitions.
